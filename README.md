@@ -1,5 +1,35 @@
 # Pregnant Lords Expanded — Project Design Brief
 
+## Development Status
+
+Development has begun against **Mount & Blade II: Bannerlord 1.5.2**.
+
+The initial source tree implements the Milestone 1 foundation:
+
+- Native pregnancy-record observation
+- Active pregnancy-duration lookup
+- Normalized progress and approximate month calculation
+- Safe **Pregnant — Progress Unknown** results when timing cannot be trusted
+- Optional provider and observation hooks for later DramaLord and AOC/FWB adapters
+- One on-screen confirmation after a campaign finishes loading
+- Birth and non-birth pregnancy-ending diagnostics
+- No withdrawal, teleportation, party changes, combat risks, fertility changes, or birth replacement
+
+Supporting specifications:
+
+- [Milestone 1 — Pregnancy Detection and Normalized Progress](docs/MILESTONE_1_PREGNANCY_PROGRESS.md)
+- [Optional Integration Architecture](docs/OPTIONAL_INTEGRATIONS.md)
+
+### Building the development module
+
+Open `PregnantLordsExpanded.sln` in Visual Studio 2022 and set the `BANNERLORD_DIR`
+environment variable to the Bannerlord installation folder. A Release build copies
+`PregnantLordsExpanded.dll` into the included `Module/PregnantLordsExpanded` structure.
+
+The calculation test project is independent of Bannerlord and verifies the normalized-month
+contract, including different pregnancy durations, the exact 50% boundary, clamping, and invalid
+timing data.
+
 ## Project Scope
 
 This project expands the existing **Pregnant Lords Stay Home** concept for *Mount & Blade II: Bannerlord*.
@@ -373,4 +403,3 @@ Recommended order:
 Always prefer using Bannerlord's existing campaign systems over replacing them.
 
 Do not consider a feature finished merely because it compiles. Test campaign behavior, save/load persistence, AI behavior, edge cases, and interaction with other mods.
-

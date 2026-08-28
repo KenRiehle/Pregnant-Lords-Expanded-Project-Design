@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>PregnantLordsExpanded</AssemblyName>
+    <RootNamespace>PregnantLordsExpanded</RootNamespace>
+    <Version>0.1.0</Version>
+    <FileVersion>0.1.0.0</FileVersion>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <Deterministic>true</Deterministic>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>$(MSBuildProjectDirectory)\..\..\artifacts\bin\</OutputPath>
+    <BannerlordDir Condition="'$(BannerlordDir)' == ''">$(BANNERLORD_DIR)</BannerlordDir>
+    <BannerlordReferenceDir Condition="'$(BannerlordReferenceDir)' == '' and '$(BannerlordDir)' != ''">$(BannerlordDir)\bin\Win64_Shipping_Client</BannerlordReferenceDir>
+  </PropertyGroup>
+
+  <ItemGroup Condition="Exists('$(BannerlordReferenceDir)')">
+    <Reference Include="$(BannerlordReferenceDir)\TaleWorlds.*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckBannerlordReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(BannerlordReferenceDir)\TaleWorlds.CampaignSystem.dll')"
+           Text="Bannerlord 1.5.2 references were not found. Set BANNERLORD_DIR to the game folder or pass -p:BannerlordReferenceDir=&quot;path\to\reference\assemblies&quot;." />
+  </Target>
+
+  <Target Name="CopyIntoModule" AfterTargets="Build">
+    <MakeDir Directories="$(MSBuildProjectDirectory)\..\..\Module\PregnantLordsExpanded\bin\Win64_Shipping_Client" />
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(MSBuildProjectDirectory)\..\..\Module\PregnantLordsExpanded\bin\Win64_Shipping_Client" />
+  </Target>
+</Project>
