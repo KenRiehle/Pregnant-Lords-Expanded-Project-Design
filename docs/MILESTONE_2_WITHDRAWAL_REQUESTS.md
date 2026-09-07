@@ -1,0 +1,327 @@
+# Milestone 2 — Withdrawal Requests, Authority, and Responsibility
+
+## Status and Boundary
+
+- Game target: **Mount & Blade II: Bannerlord 1.5.2**
+- Milestone 1 is preserved at tag `v0.1.0-milestone1`.
+- Milestone 2 begins with a **diagnostic-only implementation**.
+- This milestone decides when a withdrawal request is due, who has authority to answer it,
+  what that answer means, and who is responsible for continued campaigning.
+- It does not yet remove a hero from a party, relocate her, change relationships, add pregnancy
+  loss risk, create an escort quest, or enforce postpartum recovery.
+
+The diagnostic boundary is deliberate. Authority and responsibility must be proven in live
+campaigns before the mod changes campaign state.
+
+## Design Principle
+
+Pregnancy does not remove a hero's agency or martial ability. It creates a temporary duty to
+protect both the mother and the child she carries. A pregnant hero may still fight in immediate
+self-defense or in defense of the settlement where she is resting.
+
+Responsibility follows the final decision:
+
+| Responsibility | Meaning |
+|---|---|
+| `VoluntaryRefusal` | The pregnant hero elects to continue campaigning when the decision is hers. |
+| `CommanderOverride` | She requests withdrawal, but the person with military authority orders her to remain. |
+| `ForcedCircumstances` | Immediate conditions make safe withdrawal impossible; no one is automatically blamed. |
+| `WithdrawalApproved` | The responsible authority approves withdrawal. Later milestones perform the actual departure. |
+
+The system must not assign `CommanderOverride` merely because a hero is present in an army. It
+must establish that she requested withdrawal and that the correct authority refused it.
+
+## Normalized Month Schedule
+
+All stages use the normalized 1–9 month produced by the Milestone 1 pregnancy-progress service.
+No raw or hard-coded pregnancy-day count may be used.
+
+| Normalized month | Default stage |
+|---:|---|
+| 1–2 | Normal campaigning; no withdrawal event. |
+| 3 | Advance warning and preparation. |
+| 4 | Formal withdrawal petition. |
+| 5 | Urgent renewed petition. |
+| 6 | Serious renewed petition. |
+| 7 | Grave renewed petition. |
+| 8 | Extreme renewed petition. |
+| 9 | Birth-imminent petition. |
+
+The month 3 warning informs both the pregnant hero and her current military authority. It creates
+no relationship liability and requires no decision; its purpose is to allow time to prepare a
+replacement and safe withdrawal. If command changes before month 4, the formal petition is made
+to the new authority.
+
+Each warning or petition is processed no more than once per pregnancy month. If a pregnancy
+duration mod causes progress to skip a normalized month, the system processes the current stage
+once; it does not replay every missed petition in a single tick.
+
+If Bannerlord reports **Pregnant — Progress Unknown**, no month-based warning or petition occurs.
+The mod waits for trustworthy timing data rather than guessing.
+
+## Authority Resolution
+
+Authority is resolved from the hero's current campaign state when a petition becomes due.
+
+| Pregnant hero's state | Decision authority |
+|---|---|
+| Member of an army led by another hero | The army leader. |
+| Leader of that army | Herself. |
+| Independent party leader who is not her clan leader | Her clan leader by default; see the configurable independent-authority rule below. |
+| Independent party leader who is also her clan leader | Herself. |
+| Member of another mobile party | That party's leader. |
+| Resting in a settlement and not campaigning | No petition is required. |
+| Prisoner | Captivity rules handle the case in a later milestone. |
+| No valid party or authority can be resolved | Fail safely, log once, and retry when state changes. |
+
+The resolver must use native Bannerlord party and army ownership. It must not infer authority from
+clan rank when a different hero actually commands the army.
+
+### Independent Withdrawal Authority
+
+When a pregnant hero campaigns independently, the default political authority is her clan leader,
+not the ruler of the entire kingdom. This keeps the decision close to the noble house responsible
+for its own members while avoiding kingdom-wide petitions from every independent party.
+
+A later optional MCM setting may expose three modes:
+
+| Setting | Effect |
+|---|---|
+| `ClanLeader` (default) | A non-clan-leader petitions her clan leader. A clan leader decides for herself. |
+| `KingdomRuler` | A kingdom member petitions the faction ruler. Clan leaders without a kingdom decide for themselves. |
+| `Self` | Every independent party leader decides for herself. |
+
+Army and party command always take priority over this setting. A hero serving under another
+commander petitions that actual commander rather than a distant political authority.
+
+### Player Cases
+
+- If the player commands the army or party, the player receives the decision prompt in a later
+  activation phase.
+- If the pregnant player serves under an AI commander, the AI may approve or deny the request,
+  but the player must retain the final ability to leave the army.
+- If the pregnant player commands independently, continuing is a player choice and cannot be
+  attributed to a fictional superior.
+
+Whether an AI-controlled pregnant hero can disobey a denied order is intentionally left for a
+later decision. Milestone 2A records the commander's answer without forcing either outcome.
+
+## Decision Outcomes
+
+The diagnostic evaluator returns one explicit outcome:
+
+| Outcome | Diagnostic interpretation |
+|---|---|
+| `Approve` | Withdrawal is authorized. |
+| `Deny` | Withdrawal is refused by the resolved commander; responsibility is `CommanderOverride`. |
+| `ContinueVoluntarily` | The pregnant hero is her own authority and elects to remain; responsibility is `VoluntaryRefusal`. |
+| `ForcedDelay` | A safe departure is temporarily impossible; responsibility is `ForcedCircumstances`. |
+| `NoDecision` | The hero is not campaigning, is a prisoner, progress is unknown, or authority cannot be resolved. |
+
+A future active implementation may allow a short emergency delay during an immediate battle or
+siege. It must not silently turn a temporary delay into a permanent denial.
+
+## AI Decision Factors
+
+AI decisions use a bounded, explainable score. They must not require a general-purpose AI model
+or perform expensive searches.
+
+Factors favoring approval include:
+
+- Later normalized pregnancy month
+- High Mercy or Honor
+- Strong relationship with the mother, spouse, or her clan
+- Availability of a replacement leader
+- Nearby friendly protection
+- High dynastic or succession risk
+
+Factors that may favor refusal or delay include:
+
+- Cruel or strongly martial personality
+- Immediate battle, siege, escape, or encirclement
+- No viable replacement during a critical operation
+- Severe military emergency
+
+`ForcedCircumstances` is reserved for a genuine inability to depart safely. Strategic
+inconvenience alone is not sufficient to erase commander responsibility.
+
+Pregnancy month must become increasingly influential. By months 8 and 9, denial should be rare
+except for extreme personalities or circumstances.
+
+Any random component is rolled once for that month's decision and stored in the request ledger.
+Loading a save must not reroll an already resolved decision. The diagnostic log should preserve
+the major positive and negative score factors so surprising AI behavior can be explained.
+
+## Provisional Commander Liability
+
+Milestone 2A calculates and logs liability but does not change relationships. These recommended
+defaults remain subject to live-test review and later MCM adjustment.
+
+| Latest refused month | Target cumulative mother-to-commander penalty |
+|---:|---:|
+| 4 | −25 |
+| 5 | −35 |
+| 6 | −45 |
+| 7 | −55 |
+| 8 | −65 |
+| 9 | −75 |
+
+The eventual active implementation applies only the difference between tiers. A commander who
+already incurred a target liability of −25 at month 4 receives only the additional −10 needed to
+reach −35 at month 5.
+
+The liability record is keyed by pregnancy and responsible hero. If command changes, each
+commander retains responsibility for the decisions that commander personally made. A new
+commander's first denial uses the current pregnancy month's target severity.
+
+A healthy birth does not automatically erase accumulated resentment. Catastrophic outcomes such
+as child loss, maternal death, or deliberate execution belong to later consequence milestones and
+may increase relationships toward −100 or create Blood Debt.
+
+## Attributable Child-Loss Family Reactions
+
+These reactions belong to a later consequence milestone; Milestone 2 records enough responsibility
+data to support them without applying them yet. They occur only when the child's loss is causally
+attributed to continued campaigning, severe injury, harsh captivity, or another tracked action.
+A natural or medically unrelated stillbirth does not automatically create blame.
+
+The penalty is applied between each affected relative and the hero who is responsible:
+
+| Affected relative | Default relation change | MCM range |
+|---|---:|---:|
+| Pregnant mother, when another hero is responsible | −50 | −100 to 0 |
+| Husband or other recorded parent of the child | −50 | −100 to 0 |
+| Each living parent of the pregnant mother | −10 | −100 to 0 |
+| Each living adult sibling of the pregnant mother | −5 | −100 to 0 |
+
+Responsibility controls the target:
+
+- If a commander denied withdrawal and ordered her to remain, the family reactions target that
+  commander.
+- If withdrawal was approved but the mother voluntarily refused to leave, the family reactions
+  target the mother. No mother-to-self relation change is attempted.
+- If safe departure was genuinely impossible, the event remains `ForcedCircumstances` unless a
+  later action establishes a responsible captor or other hero.
+
+Each setting is an independent integer slider. Values are displayed as actual relation changes
+from −100 through 0, where 0 disables that role's reaction. Bannerlord's native relation limits
+still apply.
+
+The family-reaction event is applied at most once per pregnancy loss. Heroes are deduplicated by
+stable identity before penalties are applied, so one person cannot be counted twice because that
+person occupies more than one family role. Existing commander-withdrawal resentment and the
+catastrophic family reaction are separate consequences, but each has its own one-time ledger and
+must never be repeatedly applied on daily ticks or save/load.
+
+## State and Save/Load Contract
+
+Milestone 2 stores an event ledger, not a second pregnancy timeline. The pregnancy month and due
+date continue to come from Bannerlord through Milestone 1.
+
+Each active request state should retain only what is necessary to prevent duplication and assign
+responsibility:
+
+- Mother's stable hero identifier
+- Pregnancy identity derived from the active pregnancy record/start time
+- Highest warning month processed
+- Petition months already processed
+- Authority resolved for each decision
+- Decision outcome and responsibility classification
+- Target liability recorded for each responsible commander
+- Responsible hero for any later attributable pregnancy loss
+- Stored AI decision roll or resolved outcome for each processed petition
+- Whether the request state has ended
+
+The ledger must be synchronized through Bannerlord's campaign save system. On load, the same
+month must not generate the same warning or petition again.
+
+A birth, non-birth pregnancy ending, maternal death, or invalidated pregnancy record closes the
+active request state. A later pregnancy starts a new state and must not inherit prior monthly
+petition flags.
+
+## Notification and Logging Rules
+
+Milestone 2A favors diagnostics over player-facing interruptions.
+
+- AI-versus-AI decisions are logged and do not produce repeated global notifications.
+- Events involving the player may display one concise message.
+- Repeated daily logs for an unchanged state are prohibited.
+- Every decision log identifies the mother, normalized month, resolved authority, outcome,
+  responsibility type, and target liability.
+
+Example diagnostic:
+
+```text
+[PregnantLordsExpanded] Areliana entered normalized month 4.
+[PregnantLordsExpanded] Withdrawal authority: Niphon (army commander).
+[PregnantLordsExpanded] Areliana requested withdrawal; Niphon denied the request.
+[PregnantLordsExpanded] Responsibility: CommanderOverride; target liability: 25.
+```
+
+## Implementation Phases
+
+### Milestone 2A — Pure Calculations
+
+- Define settings and default schedule.
+- Define authority, decision, responsibility, and liability result types.
+- Implement month-stage and liability calculations independent of Bannerlord where practical.
+- Add automated boundary and deduplication tests.
+
+### Milestone 2B — Campaign Diagnostics
+
+- Resolve native party and army authority.
+- Persist request ledgers with `SyncData`.
+- Log warnings, petitions, decisions, and cleanup.
+- Perform no party movement or relationship mutation.
+
+### Milestone 2C — Activated Decisions
+
+Only after 2B passes live tests:
+
+- Add player decision prompts.
+- Allow AI decisions to authorize or refuse later withdrawal actions.
+- Apply configured relationship deltas exactly once.
+- Preserve the same diagnostic trail.
+
+## Acceptance Tests
+
+Milestone 2 diagnostics are complete only when all of the following are demonstrated:
+
+1. Months 1–2 produce no withdrawal event.
+2. Month 3 produces one warning.
+3. Month 4 produces one formal petition.
+4. Months 5–9 produce no more than one renewed petition per month.
+5. An army member petitions the actual army commander.
+6. An army commander is identified as her own authority.
+7. A party member outside an army petitions the correct party leader.
+8. A resting hero produces no unnecessary petition.
+9. A prisoner is deferred to the later captivity system.
+10. Unknown pregnancy progress produces no month-based action.
+11. Save/load does not repeat a processed warning or petition.
+12. Changing commanders assigns future decisions to the new commander without rewriting the old
+    commander's responsibility.
+13. Leaving or joining an army causes authority to be recalculated safely.
+14. Birth or another pregnancy-ending event closes the request state.
+15. A later pregnancy begins with a clean monthly ledger.
+16. The player is included without surrendering final player agency.
+17. No relationship, party, travel, combat-risk, fertility, or birth behavior changes during the
+    diagnostic phase.
+18. No Pregnant Lords Expanded exceptions appear in campaign logs.
+19. An independent non-clan-leader resolves to the configured clan, kingdom, or self authority.
+20. Family-reaction calculations use the configured values, skip self-relationships, deduplicate
+    overlapping roles, and produce no mutation during the diagnostic phase.
+
+## Explicitly Deferred Features
+
+The following are designed separately after withdrawal authority is proven:
+
+- Removing or replacing party leaders
+- Actual withdrawal and destination selection
+- Native Traveling state and narrative clan handoff
+- Player escort quest and AI simulated escort
+- Chivalric Mercy and Maternal Safe Conduct for captives
+- Combat- and captivity-related pregnancy loss
+- Postpartum recovery
+- Applying attributable child-loss family reactions calculated from recorded responsibility
+- Blood Debt, blood money, and AI-versus-AI feud persistence
+- Optional MCM module

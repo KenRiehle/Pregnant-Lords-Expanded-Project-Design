@@ -4,7 +4,8 @@
 
 Development has begun against **Mount & Blade II: Bannerlord 1.5.2**.
 
-The initial source tree implements the Milestone 1 foundation:
+Milestone 1 is complete, live-tested on Bannerlord 1.5.2, and preserved at tag
+`v0.1.0-milestone1`. The source tree implements:
 
 - Native pregnancy-record observation
 - Active pregnancy-duration lookup
@@ -15,9 +16,14 @@ The initial source tree implements the Milestone 1 foundation:
 - Birth and non-birth pregnancy-ending diagnostics
 - No withdrawal, teleportation, party changes, combat risks, fertility changes, or birth replacement
 
+Milestone 2 is currently in specification and begins with diagnostic-only withdrawal requests,
+authority resolution, and responsibility tracking. Gameplay effects are added only after those
+decisions pass automated and live campaign tests.
+
 Supporting specifications:
 
 - [Milestone 1 — Pregnancy Detection and Normalized Progress](docs/MILESTONE_1_PREGNANCY_PROGRESS.md)
+- [Milestone 2 — Withdrawal Requests, Authority, and Responsibility](docs/MILESTONE_2_WITHDRAWAL_REQUESTS.md)
 - [Optional Integration Architecture](docs/OPTIONAL_INTEGRATIONS.md)
 
 ### Building the development module
@@ -55,24 +61,41 @@ This should allow compatibility, where possible, with mods that alter pregnancy 
 
 The expanded mod should consume the resulting pregnancy state rather than replace those systems.
 
-## Milestone 1 — Pregnancy Campaign States
+## Planned Withdrawal and Recovery Systems
 
 ### Early Pregnancy
 
 A pregnant female lord may remain in the field during early pregnancy.
 
-The MCM should define a configurable **recommended withdrawal month**.
+The eventual optional MCM should expose configurable warning and withdrawal months.
 
-Example default:
+Default schedule:
 - Month 1–2: normal campaigning
-- Month 3: recommended withdrawal begins
+- Month 3: advance warning and preparation
+- Month 4: formal withdrawal petition
+- Month 5–9: increasingly urgent renewed petitions
+
+If the pregnant hero belongs to an army, she petitions the actual army commander. If the
+commander refuses, responsibility is recorded as `CommanderOverride`. A hero who is her own
+military authority may continue voluntarily, which is recorded as `VoluntaryRefusal`. A genuine
+inability to depart safely is recorded separately as `ForcedCircumstances`.
+
+Outside an army, the default political authority for an independent noble who is not her clan
+leader is her clan leader. A later optional MCM setting may instead use the kingdom ruler or allow
+independent self-authorization. Actual army or party command always takes priority.
+
+If a later child loss is causally attributed to a refusal or override, family reactions target the
+responsible hero. Proposed configurable defaults are −50 from the pregnant mother (when someone
+else is responsible), −50 from the husband or other recorded parent, −10 from each living parent
+of the mother, and −5 from each living adult sibling. Each role uses an independent MCM slider
+from −100 to 0; self-relations and duplicate relatives are skipped.
 
 ### Withdrawal Threshold
 
-When the configured pregnancy month is reached:
+After withdrawal is approved in a later milestone:
 - AI-controlled pregnant lords begin returning to safety
 - Player-clan pregnant heroes may follow separate configurable rules
-- The mod chooses a suitable friendly destination
+- The mod chooses a suitable friendly destination or clan handoff
 
 Preferred destination order can include:
 1. Home/clan fief when appropriate
@@ -82,29 +105,19 @@ Preferred destination order can include:
 
 ### Simulated Travel
 
-Teleportation should remain available for technical safety, but should not create instant gameplay travel.
+Native delayed travel should remain available for technical safety. For AI escorts, the native
+travel completion represents a formal handoff to the woman's clan, not necessarily arrival at a
+distant final home. Player-facing text should not name a settlement that could not plausibly have
+been reached in the elapsed time.
 
-Before teleporting:
-1. Determine the destination
-2. Estimate reasonable map travel time
-3. Store an expected arrival time
-4. Technically place the hero safely at the destination
-5. Mark the hero **In Transit**
-6. Prevent normal availability until the simulated travel time expires
+Possible player-facing completion text:
+> Under a flag of truce, Areliana has been delivered safely into the protection of Clan Neretzes.
+> Her kin will escort her onward. Niphon is returning to friendly territory under safe conduct.
 
-If the home fief is approximately 10 campaign days away, the hero may be technically moved immediately but remains unavailable for 10 campaign days.
+The hero remains unavailable while Bannerlord reports the native Traveling state. The later
+withdrawal implementation must handle invalid or hostile destinations safely.
 
-Possible player-facing status:
-> Returning home due to pregnancy — expected arrival in approximately 10 days.
-
-When the timer expires:
-- State changes from **In Transit** to **Resting**
-- The hero becomes available at the settlement
-- She remains restricted from campaigning until allowed by the pregnancy/recovery rules
-
-If the destination becomes hostile while she is in transit, the mod should reroute her to another valid friendly settlement and recalculate the remaining travel period where practical.
-
-## Milestone 2 — Party Leadership and Escort
+## Later Milestone — Party Leadership and Escort
 
 ### Party Leader Withdrawal
 
@@ -118,48 +131,31 @@ Avoid faking the hero's death.
 
 Prefer invoking or reproducing the normal Bannerlord leadership-transition logic.
 
-### Escort Size
+### AI Escort Priority
 
-When the hero withdraws, she may take a protective escort.
+AI withdrawal should prefer a named escort without creating an unnecessary campaign-map party:
 
-Potential MCM choices:
-- 25%
-- 33%
-- 50%
-- Custom percentage
+1. Available adult noble or clan member
+2. Available wanderer or companion
+3. Unnamed escort captain or troop detachment
+4. Pure narrative simulation fallback
 
-Default candidate: **33%**
+### Player Escort
 
-### Escort Selection
-
-Possible modes:
-- Strongest troops
-- Balanced strongest troops
-
-Default candidate: **Balanced strongest troops**
-
-Prioritize higher-tier troops while maintaining a sensible tactical mix when possible.
+The player may either escort her personally as a real quest or assign an eligible wanderer or
+adult clan member. Full chivalric rewards are granted only after a successful handoff, not when
+the promise is made.
 
 ### Escort Transit
 
-The escort should not instantly appear in the destination garrison.
+Named AI escorts are unavailable during outbound travel and return. They use narrative/native
+travel rather than a vulnerable extra party on the campaign map. This avoids pathfinding,
+capture, and troop-duplication problems.
 
-Instead:
-- Remove/store the escort roster during departure
-- Treat those troops as traveling with the pregnant hero
-- Keep them unavailable during the simulated travel period
-- Deliver them only when the hero's arrival timer completes
+### Handoff Responsibility
 
-This prevents troop teleportation exploits.
-
-### Arrival and Garrison
-
-When the hero arrives:
-- Transfer escort troops into the local friendly garrison where possible
-- Handle overflow safely
-- Never silently delete troops
-
-Fallbacks should use Bannerlord's native troop-transfer/disband systems wherever possible.
+At the handoff, responsibility transfers to her clan except for a later loss medically attributed
+to wounds or mistreatment that occurred before the transfer.
 
 ## Milestone 3 — Pregnancy Combat Risk
 
@@ -386,19 +382,18 @@ Negative outcomes should not necessarily share the positive cooldown; repeatedly
 Build this project in milestones and validate each stage in real Bannerlord gameplay.
 
 Recommended order:
-1. Pregnancy progress detection
-2. Normalized month calculation
-3. Withdrawal threshold
-4. Safe destination selection
-5. Simulated transit
-6. Resting state
-7. Native party-leader transition
-8. Escort selection/storage/arrival
-9. Combat injury pregnancy risk
-10. Postpartum recovery
-11. Dialogue/persuasion
-12. Prisoner complications and blood-debt system
-13. Additional trait/social consequences
+1. Pregnancy detection and normalized progress — complete
+2. Withdrawal warnings, petitions, authority, and responsibility diagnostics
+3. Activated commander and player decisions
+4. Relationship liability
+5. Safe destination, native travel, and narrative handoff
+6. Party-leader transition and escort quest/simulation
+7. Postpartum recovery
+8. Combat injury pregnancy risk
+9. Chivalric captivity dialogue and Maternal Safe Conduct
+10. Prisoner complications, Blood Debt, and feud resolution
+11. Additional dialogue, persuasion, and social reactions
+12. Optional integrations and MCM presentation
 
 Always prefer using Bannerlord's existing campaign systems over replacing them.
 
