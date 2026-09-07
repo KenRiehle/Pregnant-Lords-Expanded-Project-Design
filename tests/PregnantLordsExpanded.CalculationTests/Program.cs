@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using PregnantLordsExpanded.Pregnancy;
+using PregnantLordsExpanded.Withdrawal;
 
 namespace PregnantLordsExpanded.CalculationTests
 {
@@ -21,7 +23,352 @@ namespace PregnantLordsExpanded.CalculationTests
             AssertInvalid(double.NaN, 0.0, 10.0, "non-finite value");
 
             Console.WriteLine("All normalized pregnancy progress tests passed.");
+
+            TestDefaultWithdrawalSchedule();
+            TestCustomWithdrawalSchedule();
+            TestResponsibilityMapping();
+            TestCommanderLiability();
+            TestAuthorityResolution();
+            TestFamilyReactions();
+            TestFamilyReactionSettings();
+
+            Console.WriteLine("All Milestone 2A withdrawal calculation tests passed.");
             return 0;
+        }
+
+        private static void TestDefaultWithdrawalSchedule()
+        {
+            WithdrawalSettings settings = WithdrawalSettings.Default;
+
+            AssertStage(1, settings, WithdrawalMonthStage.None);
+            AssertStage(2, settings, WithdrawalMonthStage.None);
+            AssertStage(3, settings, WithdrawalMonthStage.AdvanceWarning);
+            AssertStage(4, settings, WithdrawalMonthStage.FormalPetition);
+
+            for (int month = 5; month <= 9; month++)
+            {
+                AssertStage(month, settings, WithdrawalMonthStage.RenewedPetition);
+            }
+
+            AssertStage(0, settings, WithdrawalMonthStage.None);
+            AssertStage(10, settings, WithdrawalMonthStage.None);
+        }
+
+        private static void TestCustomWithdrawalSchedule()
+        {
+            var settings = new WithdrawalSettings(
+                2,
+                5,
+                IndependentWithdrawalAuthorityMode.Self);
+
+            AssertStage(1, settings, WithdrawalMonthStage.None);
+            AssertStage(2, settings, WithdrawalMonthStage.AdvanceWarning);
+            AssertStage(3, settings, WithdrawalMonthStage.None);
+            AssertStage(4, settings, WithdrawalMonthStage.None);
+            AssertStage(5, settings, WithdrawalMonthStage.FormalPetition);
+            AssertStage(6, settings, WithdrawalMonthStage.RenewedPetition);
+
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => new WithdrawalSettings(
+                    0,
+                    4,
+                    IndependentWithdrawalAuthorityMode.ClanLeader),
+                "warning month below range");
+            AssertThrows<ArgumentException>(
+                () => new WithdrawalSettings(
+                    4,
+                    4,
+                    IndependentWithdrawalAuthorityMode.ClanLeader),
+                "petition must follow warning");
+        }
+
+        private static void TestResponsibilityMapping()
+        {
+            AssertEqual(
+                WithdrawalResponsibility.WithdrawalApproved,
+                WithdrawalResponsibilityCalculator.FromDecision(WithdrawalDecision.Approve),
+                "approved responsibility");
+            AssertEqual(
+                WithdrawalResponsibility.CommanderOverride,
+                WithdrawalResponsibilityCalculator.FromDecision(WithdrawalDecision.Deny),
+                "denied responsibility");
+            AssertEqual(
+                WithdrawalResponsibility.VoluntaryRefusal,
+                WithdrawalResponsibilityCalculator.FromDecision(
+                    WithdrawalDecision.ContinueVoluntarily),
+                "voluntary responsibility");
+            AssertEqual(
+                WithdrawalResponsibility.ForcedCircumstances,
+                WithdrawalResponsibilityCalculator.FromDecision(WithdrawalDecision.ForcedDelay),
+                "forced-delay responsibility");
+            AssertEqual(
+                WithdrawalResponsibility.None,
+                WithdrawalResponsibilityCalculator.FromDecision(WithdrawalDecision.NoDecision),
+                "no-decision responsibility");
+        }
+
+        private static void TestCommanderLiability()
+        {
+            int[] expected = { 0, 0, 0, -25, -35, -45, -55, -65, -75 };
+            for (int month = 1; month <= 9; month++)
+            {
+                AssertEqual(
+                    expected[month - 1],
+                    CommanderLiabilityCalculator.GetDefaultCumulativePenalty(month),
+                    "commander liability month " + month);
+            }
+
+            AssertEqual(
+                0,
+                CommanderLiabilityCalculator.GetDefaultCumulativePenalty(10),
+                "invalid normalized month does not create liability");
+
+            AssertEqual(
+                -10,
+                CommanderLiabilityCalculator.GetAdditionalPenalty(-25, -35),
+                "month 4 to month 5 delta");
+            AssertEqual(
+                -55,
+                CommanderLiabilityCalculator.GetAdditionalPenalty(0, -55),
+                "new commander receives current target");
+            AssertEqual(
+                0,
+                CommanderLiabilityCalculator.GetAdditionalPenalty(-55, -55),
+                "same tier does not repeat");
+            AssertEqual(
+                0,
+                CommanderLiabilityCalculator.GetAdditionalPenalty(-65, -55),
+                "liability never reverses automatically");
+        }
+
+        private static void TestAuthorityResolution()
+        {
+            var armyMember = CampaigningMother();
+            armyMember.IsArmyMember = true;
+            armyMember.ArmyLeaderId = "commander";
+            AssertAuthority(
+                armyMember,
+                IndependentWithdrawalAuthorityMode.ClanLeader,
+                WithdrawalAuthorityKind.ArmyLeader,
+                "commander");
+
+            var armyLeader = CampaigningMother();
+            armyLeader.IsArmyMember = true;
+            armyLeader.ArmyLeaderId = "mother";
+            AssertAuthority(
+                armyLeader,
+                IndependentWithdrawalAuthorityMode.ClanLeader,
+                WithdrawalAuthorityKind.Self,
+                "mother");
+
+            var partyMember = CampaigningMother();
+            partyMember.PartyLeaderId = "party_leader";
+            AssertAuthority(
+                partyMember,
+                IndependentWithdrawalAuthorityMode.ClanLeader,
+                WithdrawalAuthorityKind.PartyLeader,
+                "party_leader");
+
+            var independent = CampaigningMother();
+            independent.LeadsIndependentParty = true;
+            independent.PartyLeaderId = "mother";
+            independent.ClanLeaderId = "clan_leader";
+            independent.KingdomRulerId = "ruler";
+            AssertAuthority(
+                independent,
+                IndependentWithdrawalAuthorityMode.ClanLeader,
+                WithdrawalAuthorityKind.ClanLeader,
+                "clan_leader");
+            AssertAuthority(
+                independent,
+                IndependentWithdrawalAuthorityMode.KingdomRuler,
+                WithdrawalAuthorityKind.KingdomRuler,
+                "ruler");
+            AssertAuthority(
+                independent,
+                IndependentWithdrawalAuthorityMode.Self,
+                WithdrawalAuthorityKind.Self,
+                "mother");
+
+            independent.ClanLeaderId = "mother";
+            AssertAuthority(
+                independent,
+                IndependentWithdrawalAuthorityMode.ClanLeader,
+                WithdrawalAuthorityKind.Self,
+                "mother");
+
+            independent.KingdomRulerId = string.Empty;
+            AssertAuthority(
+                independent,
+                IndependentWithdrawalAuthorityMode.KingdomRuler,
+                WithdrawalAuthorityKind.Self,
+                "mother");
+
+            var prisoner = CampaigningMother();
+            prisoner.IsPrisoner = true;
+            AssertNoAuthority(prisoner, "prisoner has no withdrawal authority");
+
+            var resting = CampaigningMother();
+            resting.IsResting = true;
+            AssertNoAuthority(resting, "resting hero has no withdrawal petition");
+        }
+
+        private static void TestFamilyReactions()
+        {
+            var candidates = new List<FamilyReactionCandidate>
+            {
+                new FamilyReactionCandidate("mother", FamilyReactionRole.PregnantMother),
+                new FamilyReactionCandidate("husband", FamilyReactionRole.SpouseOrOtherParent),
+                new FamilyReactionCandidate("parent_one", FamilyReactionRole.MothersParent),
+                new FamilyReactionCandidate("parent_two", FamilyReactionRole.MothersParent),
+                new FamilyReactionCandidate("sibling_one", FamilyReactionRole.MothersAdultSibling),
+                new FamilyReactionCandidate("sibling_two", FamilyReactionRole.MothersAdultSibling)
+            };
+
+            IReadOnlyList<FamilyReaction> commanderReactions =
+                FamilyReactionCalculator.Calculate(
+                    "commander",
+                    candidates,
+                    FamilyReactionSettings.Default);
+
+            AssertEqual(6, commanderReactions.Count, "all family roles react to commander");
+            AssertReaction(commanderReactions, "mother", -50);
+            AssertReaction(commanderReactions, "husband", -50);
+            AssertReaction(commanderReactions, "parent_one", -10);
+            AssertReaction(commanderReactions, "parent_two", -10);
+            AssertReaction(commanderReactions, "sibling_one", -5);
+            AssertReaction(commanderReactions, "sibling_two", -5);
+
+            IReadOnlyList<FamilyReaction> motherResponsibleReactions =
+                FamilyReactionCalculator.Calculate(
+                    "mother",
+                    candidates,
+                    FamilyReactionSettings.Default);
+            AssertEqual(
+                5,
+                motherResponsibleReactions.Count,
+                "mother-to-self reaction is skipped");
+
+            var overlappingRoles = new List<FamilyReactionCandidate>
+            {
+                new FamilyReactionCandidate("same_hero", FamilyReactionRole.MothersAdultSibling),
+                new FamilyReactionCandidate("same_hero", FamilyReactionRole.SpouseOrOtherParent)
+            };
+            IReadOnlyList<FamilyReaction> deduplicated = FamilyReactionCalculator.Calculate(
+                "responsible",
+                overlappingRoles,
+                FamilyReactionSettings.Default);
+            AssertEqual(1, deduplicated.Count, "overlapping family roles are deduplicated");
+            AssertReaction(deduplicated, "same_hero", -50);
+        }
+
+        private static void TestFamilyReactionSettings()
+        {
+            var disabled = new FamilyReactionSettings(0, 0, 0, 0);
+            IReadOnlyList<FamilyReaction> reactions = FamilyReactionCalculator.Calculate(
+                "responsible",
+                new[]
+                {
+                    new FamilyReactionCandidate("mother", FamilyReactionRole.PregnantMother)
+                },
+                disabled);
+            AssertEqual(0, reactions.Count, "zero disables a family reaction");
+
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => new FamilyReactionSettings(-101, -50, -10, -5),
+                "family penalty below slider range");
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => new FamilyReactionSettings(1, -50, -10, -5),
+                "family penalty above slider range");
+        }
+
+        private static WithdrawalAuthorityContext CampaigningMother()
+        {
+            return new WithdrawalAuthorityContext
+            {
+                MotherId = "mother",
+                IsCampaigning = true
+            };
+        }
+
+        private static void AssertStage(
+            int month,
+            WithdrawalSettings settings,
+            WithdrawalMonthStage expected)
+        {
+            WithdrawalMonthResult result = WithdrawalMonthCalculator.Calculate(month, settings);
+            AssertEqual(expected, result.Stage, "withdrawal stage month " + month);
+        }
+
+        private static void AssertAuthority(
+            WithdrawalAuthorityContext context,
+            IndependentWithdrawalAuthorityMode mode,
+            WithdrawalAuthorityKind expectedKind,
+            string expectedHeroId)
+        {
+            WithdrawalAuthorityResult result = WithdrawalAuthorityResolver.Resolve(context, mode);
+            if (!result.HasAuthority)
+            {
+                throw new InvalidOperationException(
+                    "Expected authority but received: " + result.NoDecisionReason);
+            }
+
+            AssertEqual(expectedKind, result.Kind, "authority kind");
+            AssertEqual(expectedHeroId, result.AuthorityId, "authority hero");
+        }
+
+        private static void AssertNoAuthority(
+            WithdrawalAuthorityContext context,
+            string name)
+        {
+            WithdrawalAuthorityResult result = WithdrawalAuthorityResolver.Resolve(
+                context,
+                IndependentWithdrawalAuthorityMode.ClanLeader);
+            if (result.HasAuthority || string.IsNullOrWhiteSpace(result.NoDecisionReason))
+            {
+                throw new InvalidOperationException(name + " failed.");
+            }
+        }
+
+        private static void AssertReaction(
+            IReadOnlyList<FamilyReaction> reactions,
+            string heroId,
+            int expectedChange)
+        {
+            foreach (FamilyReaction reaction in reactions)
+            {
+                if (reaction.HeroId == heroId)
+                {
+                    AssertEqual(expectedChange, reaction.RelationChange, "reaction for " + heroId);
+                    return;
+                }
+            }
+
+            throw new InvalidOperationException("No family reaction found for " + heroId + ".");
+        }
+
+        private static void AssertEqual<T>(T expected, T actual, string name)
+        {
+            if (!EqualityComparer<T>.Default.Equals(expected, actual))
+            {
+                throw new InvalidOperationException(
+                    name + " failed. Expected=" + expected + ", actual=" + actual + ".");
+            }
+        }
+
+        private static void AssertThrows<TException>(Action action, string name)
+            where TException : Exception
+        {
+            try
+            {
+                action();
+            }
+            catch (TException)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(name + " should throw " + typeof(TException).Name + ".");
         }
 
         private static void AssertKnown(
@@ -79,4 +426,3 @@ namespace PregnantLordsExpanded.CalculationTests
         }
     }
 }
-

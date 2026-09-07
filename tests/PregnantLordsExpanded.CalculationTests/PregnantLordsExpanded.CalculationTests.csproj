@@ -10,6 +10,15 @@
   <ItemGroup>
     <Compile Include="..\..\src\PregnantLordsExpanded\Pregnancy\PregnancyProgressCalculator.cs"
              Link="PregnancyProgressCalculator.cs" />
+    <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\WithdrawalModels.cs"
+             Link="Withdrawal\WithdrawalModels.cs" />
+    <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\WithdrawalSettings.cs"
+             Link="Withdrawal\WithdrawalSettings.cs" />
+    <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\WithdrawalCalculators.cs"
+             Link="Withdrawal\WithdrawalCalculators.cs" />
+    <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\WithdrawalAuthorityResolver.cs"
+             Link="Withdrawal\WithdrawalAuthorityResolver.cs" />
+    <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\FamilyReactionCalculator.cs"
+             Link="Withdrawal\FamilyReactionCalculator.cs" />
   </ItemGroup>
 </Project>
-
