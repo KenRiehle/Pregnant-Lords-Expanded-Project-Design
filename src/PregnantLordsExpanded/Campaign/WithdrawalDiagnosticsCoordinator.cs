@@ -6,20 +6,22 @@ using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Actions;
 using TaleWorlds.CampaignSystem.CharacterDevelopment;
 using TaleWorlds.CampaignSystem.Party;
+using TaleWorlds.Library;
 
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
     /// Milestone 2B-2D campaign adapter. It records warnings, petitions, authority,
     /// AI decisions, responsibility, and transitions into or out of protected rest.
-    /// Milestone 2D applies an AI commander's cumulative denial penalty exactly once;
-    /// it still never moves a hero or performs a withdrawal action.
+    /// Milestone 2D applies commander-denial relationship penalties and presents
+    /// save-safe player decisions. It still never moves a hero or performs travel.
     /// </summary>
     internal sealed class WithdrawalDiagnosticsCoordinator
     {
         private const string SavePrefix = "PLE_M2B_";
         private const string ProtectedRestSavePrefix = "PLE_M2C_";
         private const string RelationshipSavePrefix = "PLE_M2D_";
+        private const string PlayerDecisionSavePrefix = "PLE_M2DB_";
 
         private Dictionary<string, int> _pregnancySequenceByMother =
             new Dictionary<string, int>();
@@ -45,6 +47,14 @@ namespace PregnantLordsExpanded.Campaign
             new Dictionary<string, string>();
         private Dictionary<string, int> _departureSequenceByPregnancy =
             new Dictionary<string, int>();
+        private Dictionary<string, int> _finalDecisionByRequest =
+            new Dictionary<string, int>();
+
+        private readonly Queue<PlayerPromptRequest> _pendingPlayerPrompts =
+            new Queue<PlayerPromptRequest>();
+        private readonly HashSet<string> _queuedPlayerPromptKeys =
+            new HashSet<string>();
+        private bool _playerInquiryOpen;
 
         public void SyncData(IDataStore dataStore)
         {
@@ -84,8 +94,18 @@ namespace PregnantLordsExpanded.Campaign
             dataStore.SyncData(
                 RelationshipSavePrefix + "AppliedRelationPenaltyByPregnancyAndAuthority",
                 ref _appliedRelationPenaltyByPregnancyAndAuthority);
+            dataStore.SyncData(
+                PlayerDecisionSavePrefix + "FinalDecisionByRequest",
+                ref _finalDecisionByRequest);
 
             EnsureCollections();
+        }
+
+        public void ResetSessionPrompts()
+        {
+            _pendingPlayerPrompts.Clear();
+            _queuedPlayerPromptKeys.Clear();
+            _playerInquiryOpen = false;
         }
 
         public void Observe(Hero mother, int normalizedMonth)
@@ -135,22 +155,18 @@ namespace PregnantLordsExpanded.Campaign
                 protectedRestTransition.RequiresImmediatePetition
                 && normalizedMonth >= settings.FormalPetitionMonth;
 
-            if (monthAlreadyProcessed && !departureRequiresImmediatePetition)
-            {
-                return;
-            }
-
-            if (!monthAlreadyProcessed)
-            {
-                _highestProcessedMonthByPregnancy[pregnancyKey] = normalizedMonth;
-            }
-
             WithdrawalAuthorityResult authority = WithdrawalAuthorityResolver.Resolve(
                 authorityContext,
                 settings.IndependentAuthorityMode);
 
             if (stage.IsWarning)
             {
+                if (monthAlreadyProcessed)
+                {
+                    return;
+                }
+
+                _highestProcessedMonthByPregnancy[pregnancyKey] = normalizedMonth;
                 LogWarning(mother, normalizedMonth, authority);
                 return;
             }
@@ -163,8 +179,17 @@ namespace PregnantLordsExpanded.Campaign
                 ? pregnancyKey + "|departure:" + departureSequence
                     + "|month:" + normalizedMonth
                 : pregnancyKey + "|month:" + normalizedMonth;
+
+            bool requestHasFinalPlayerDecision =
+                HasFinalPlayerDecision(requestKey);
             if (!authority.HasAuthority)
             {
+                if (monthAlreadyProcessed && !departureRequiresImmediatePetition)
+                {
+                    return;
+                }
+
+                _highestProcessedMonthByPregnancy[pregnancyKey] = normalizedMonth;
                 _decisionByRequest[requestKey] = (int)WithdrawalDecision.NoDecision;
                 DiagnosticLog.Info(
                     mother.Name + " reached normalized month " + normalizedMonth
@@ -177,6 +202,12 @@ namespace PregnantLordsExpanded.Campaign
             Hero authorityHero = ResolveAuthorityHero(mother, authority);
             if (authorityHero == null)
             {
+                if (monthAlreadyProcessed && !departureRequiresImmediatePetition)
+                {
+                    return;
+                }
+
+                _highestProcessedMonthByPregnancy[pregnancyKey] = normalizedMonth;
                 _decisionByRequest[requestKey] = (int)WithdrawalDecision.NoDecision;
                 DiagnosticLog.Info(
                     mother.Name + " reached normalized month " + normalizedMonth
@@ -185,13 +216,29 @@ namespace PregnantLordsExpanded.Campaign
                 return;
             }
 
-            if (authorityHero == Hero.MainHero)
+            bool playerInvolved = authorityHero == Hero.MainHero
+                || mother == Hero.MainHero;
+            if (monthAlreadyProcessed
+                && !departureRequiresImmediatePetition
+                && (!playerInvolved || requestHasFinalPlayerDecision))
             {
-                _decisionByRequest[requestKey] = (int)WithdrawalDecision.NoDecision;
-                DiagnosticLog.Info(
-                    mother.Name + " requested withdrawal at normalized month "
-                    + normalizedMonth + "; the player is the decision authority. "
-                    + "Milestone 2B records the request without choosing for the player.");
+                return;
+            }
+
+            if (!monthAlreadyProcessed)
+            {
+                _highestProcessedMonthByPregnancy[pregnancyKey] = normalizedMonth;
+            }
+
+            if (playerInvolved)
+            {
+                QueuePlayerDecision(
+                    mother,
+                    authorityHero,
+                    authority,
+                    normalizedMonth,
+                    pregnancyKey,
+                    requestKey);
                 return;
             }
 
@@ -199,77 +246,380 @@ namespace PregnantLordsExpanded.Campaign
             AiWithdrawalDecisionResult decisionResult =
                 AiWithdrawalDecisionCalculator.Calculate(
                     CreateDecisionInput(mother, authorityHero, normalizedMonth, selfAuthority));
-            WithdrawalResponsibility responsibility =
-                WithdrawalResponsibilityCalculator.FromDecision(decisionResult.Decision);
+            var resolution = new PlayerWithdrawalResolution(
+                decisionResult.Decision,
+                decisionResult.Decision,
+                WithdrawalResponsibilityCalculator.FromDecision(decisionResult.Decision),
+                decisionResult.Decision == WithdrawalDecision.Deny);
+            RecordResolution(
+                mother,
+                authorityHero,
+                authority,
+                normalizedMonth,
+                pregnancyKey,
+                requestKey,
+                resolution,
+                decisionResult.Explanation,
+                false);
+        }
 
-            _decisionByRequest[requestKey] = (int)decisionResult.Decision;
-            _lastResponsibilityByPregnancy[pregnancyKey] = (int)responsibility;
+        private void QueuePlayerDecision(
+            Hero mother,
+            Hero authorityHero,
+            WithdrawalAuthorityResult authority,
+            int normalizedMonth,
+            string pregnancyKey,
+            string requestKey)
+        {
+            if (HasFinalPlayerDecision(requestKey)
+                || _queuedPlayerPromptKeys.Contains(requestKey))
+            {
+                return;
+            }
 
-            if (responsibility == WithdrawalResponsibility.CommanderOverride
-                || responsibility == WithdrawalResponsibility.VoluntaryRefusal)
+            bool pregnantPlayer = mother == Hero.MainHero;
+            WithdrawalDecision authorityDecision = WithdrawalDecision.NoDecision;
+            string explanation = "player authority decision";
+
+            if (pregnantPlayer && authorityHero != mother)
+            {
+                int savedDecision;
+                if (_decisionByRequest.TryGetValue(requestKey, out savedDecision)
+                    && savedDecision != (int)WithdrawalDecision.NoDecision)
+                {
+                    authorityDecision = (WithdrawalDecision)savedDecision;
+                    explanation = "restored AI authority decision";
+                }
+                else
+                {
+                    AiWithdrawalDecisionResult aiDecision =
+                        AiWithdrawalDecisionCalculator.Calculate(
+                            CreateDecisionInput(
+                                mother,
+                                authorityHero,
+                                normalizedMonth,
+                                false));
+                    authorityDecision = aiDecision.Decision;
+                    explanation = aiDecision.Explanation;
+                    _decisionByRequest[requestKey] = (int)authorityDecision;
+                }
+            }
+            else
+            {
+                _decisionByRequest[requestKey] = (int)WithdrawalDecision.NoDecision;
+            }
+
+            _queuedPlayerPromptKeys.Add(requestKey);
+            _pendingPlayerPrompts.Enqueue(
+                new PlayerPromptRequest(
+                    mother,
+                    authorityHero,
+                    authority,
+                    normalizedMonth,
+                    pregnancyKey,
+                    requestKey,
+                    authorityDecision,
+                    explanation,
+                    pregnantPlayer));
+
+            DiagnosticLog.Info(
+                mother.Name + " withdrawal petition at normalized month "
+                + normalizedMonth + " queued for player decision; authority="
+                + authorityHero.Name + " (" + authority.Kind + "), authority decision="
+                + authorityDecision + ".");
+            TryShowNextPlayerPrompt();
+        }
+
+        private void TryShowNextPlayerPrompt()
+        {
+            if (_playerInquiryOpen || _pendingPlayerPrompts.Count == 0)
+            {
+                return;
+            }
+
+            PlayerPromptRequest request = _pendingPlayerPrompts.Dequeue();
+            if (HasFinalPlayerDecision(request.RequestKey))
+            {
+                _queuedPlayerPromptKeys.Remove(request.RequestKey);
+                TryShowNextPlayerPrompt();
+                return;
+            }
+
+            _playerInquiryOpen = true;
+            try
+            {
+                InquiryData inquiry = request.PregnantPlayer
+                    ? CreatePregnantPlayerInquiry(request)
+                    : CreatePlayerAuthorityInquiry(request);
+                InformationManager.ShowInquiry(inquiry, true, false);
+            }
+            catch (Exception exception)
+            {
+                _playerInquiryOpen = false;
+                _queuedPlayerPromptKeys.Remove(request.RequestKey);
+                DiagnosticLog.WarnOnce(
+                    "m2db-inquiry:" + request.RequestKey,
+                    "Could not display the withdrawal decision for "
+                    + request.Mother.Name + "; the request remains pending and will be retried. "
+                    + exception.GetType().Name + ": " + exception.Message);
+                TryShowNextPlayerPrompt();
+            }
+        }
+
+        private InquiryData CreatePlayerAuthorityInquiry(PlayerPromptRequest request)
+        {
+            int pendingPenalty = GetPendingRelationshipPenalty(
+                request.PregnancyKey,
+                request.Authority,
+                request.NormalizedMonth);
+            string penaltyText = pendingPenalty < 0
+                ? " Ordering her to remain will change her relationship with you by "
+                    + pendingPenalty + "."
+                : string.Empty;
+
+            string text = request.Mother.Name + " is in normalized pregnancy month "
+                + request.NormalizedMonth
+                + " and requests permission to withdraw from field service."
+                + penaltyText
+                + " This milestone records your order; safe travel is added next.";
+
+            return new InquiryData(
+                "Withdrawal Petition",
+                text,
+                true,
+                true,
+                "Approve Withdrawal",
+                "Order Her to Remain",
+                () => ResolvePlayerPrompt(
+                    request,
+                    PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(
+                        PlayerWithdrawalChoice.ApprovePetition),
+                    PlayerWithdrawalChoice.ApprovePetition),
+                () => ResolvePlayerPrompt(
+                    request,
+                    PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(
+                        PlayerWithdrawalChoice.DenyPetition),
+                    PlayerWithdrawalChoice.DenyPetition));
+        }
+
+        private InquiryData CreatePregnantPlayerInquiry(PlayerPromptRequest request)
+        {
+            string authorityText;
+            string affirmativeText;
+            string negativeText;
+
+            if (request.Authority == request.Mother)
+            {
+                authorityText = "You are your own authority and must decide whether to withdraw.";
+                affirmativeText = "Choose Withdrawal";
+                negativeText = "Remain in the Field";
+            }
+            else if (request.AuthorityDecision == WithdrawalDecision.Deny)
+            {
+                int pendingPenalty = GetPendingRelationshipPenalty(
+                    request.PregnancyKey,
+                    request.Authority,
+                    request.NormalizedMonth);
+                authorityText = request.Authority.Name
+                    + " has ordered you to remain in the field."
+                    + (pendingPenalty < 0
+                        ? " The order will change your relationship by "
+                            + pendingPenalty + "."
+                        : string.Empty);
+                affirmativeText = "Withdraw Anyway";
+                negativeText = "Remain as Ordered";
+            }
+            else
+            {
+                authorityText = request.Authority.Name
+                    + " has approved your withdrawal request.";
+                affirmativeText = "Choose Withdrawal";
+                negativeText = "Remain in the Field";
+            }
+
+            string text = "You are in normalized pregnancy month "
+                + request.NormalizedMonth + ". " + authorityText
+                + " This milestone records your decision; safe travel is added next.";
+
+            return new InquiryData(
+                "Pregnancy Withdrawal",
+                text,
+                true,
+                true,
+                affirmativeText,
+                negativeText,
+                () => ResolvePlayerPrompt(
+                    request,
+                    PlayerWithdrawalDecisionCalculator.ResolvePregnantPlayer(
+                        request.AuthorityDecision,
+                        PlayerWithdrawalChoice.Withdraw),
+                    PlayerWithdrawalChoice.Withdraw),
+                () => ResolvePlayerPrompt(
+                    request,
+                    PlayerWithdrawalDecisionCalculator.ResolvePregnantPlayer(
+                        request.AuthorityDecision,
+                        PlayerWithdrawalChoice.ContinueCampaigning),
+                    PlayerWithdrawalChoice.ContinueCampaigning));
+        }
+
+        private void ResolvePlayerPrompt(
+            PlayerPromptRequest request,
+            PlayerWithdrawalResolution resolution,
+            PlayerWithdrawalChoice playerChoice)
+        {
+            try
+            {
+                _finalDecisionByRequest[request.RequestKey] =
+                    (int)resolution.FinalDecision;
+                RecordResolution(
+                    request.Mother,
+                    request.Authority,
+                    request.AuthorityResult,
+                    request.NormalizedMonth,
+                    request.PregnancyKey,
+                    request.RequestKey,
+                    resolution,
+                    request.Explanation + "; player choice=" + playerChoice,
+                    true);
+            }
+            finally
+            {
+                _queuedPlayerPromptKeys.Remove(request.RequestKey);
+                _playerInquiryOpen = false;
+                TryShowNextPlayerPrompt();
+            }
+        }
+
+        private void RecordResolution(
+            Hero mother,
+            Hero authorityHero,
+            WithdrawalAuthorityResult authority,
+            int normalizedMonth,
+            string pregnancyKey,
+            string requestKey,
+            PlayerWithdrawalResolution resolution,
+            string explanation,
+            bool playerResolved)
+        {
+            _decisionByRequest[requestKey] = (int)resolution.AuthorityDecision;
+            _lastResponsibilityByPregnancy[pregnancyKey] =
+                (int)resolution.Responsibility;
+
+            if (resolution.Responsibility == WithdrawalResponsibility.CommanderOverride)
             {
                 _lastResponsibleHeroByPregnancy[pregnancyKey] = HeroKey(authorityHero);
+            }
+            else if (resolution.Responsibility == WithdrawalResponsibility.VoluntaryRefusal)
+            {
+                _lastResponsibleHeroByPregnancy[pregnancyKey] = HeroKey(mother);
+            }
+            else
+            {
+                _lastResponsibleHeroByPregnancy.Remove(pregnancyKey);
             }
 
             int targetLiability = 0;
             int additionalLiability = 0;
             int relationshipChangeApplied = 0;
             int appliedCumulativeRelationshipPenalty = 0;
-            if (responsibility == WithdrawalResponsibility.CommanderOverride)
+            if (resolution.ApplyCommanderRelationPenalty && authorityHero != mother)
             {
-                string liabilityKey = pregnancyKey + "|authority:" + HeroKey(authorityHero);
-                int alreadyRecorded;
-                _liabilityByPregnancyAndAuthority.TryGetValue(
-                    liabilityKey,
-                    out alreadyRecorded);
-
-                targetLiability = CommanderLiabilityCalculator.GetDefaultCumulativePenalty(
-                    normalizedMonth);
-                additionalLiability = CommanderLiabilityCalculator.GetAdditionalPenalty(
-                    alreadyRecorded,
-                    targetLiability);
-
-                if (additionalLiability < 0)
-                {
-                    _liabilityByPregnancyAndAuthority[liabilityKey] = targetLiability;
-                }
-
-                int alreadyAppliedRelationPenalty;
-                _appliedRelationPenaltyByPregnancyAndAuthority.TryGetValue(
-                    liabilityKey,
-                    out alreadyAppliedRelationPenalty);
-                int pendingRelationshipPenalty =
-                    CommanderRelationPenaltyCalculator.GetPendingPenalty(
-                        normalizedMonth,
-                        alreadyAppliedRelationPenalty);
-
-                appliedCumulativeRelationshipPenalty = alreadyAppliedRelationPenalty;
-                if (pendingRelationshipPenalty < 0
-                    && TryApplyCommanderRelationshipPenalty(
-                        mother,
-                        authorityHero,
-                        liabilityKey,
-                        pendingRelationshipPenalty,
-                        targetLiability))
-                {
-                    relationshipChangeApplied = pendingRelationshipPenalty;
-                    appliedCumulativeRelationshipPenalty = targetLiability;
-                    _appliedRelationPenaltyByPregnancyAndAuthority[liabilityKey] =
-                        targetLiability;
-                }
+                ApplyCommanderDenialConsequence(
+                    mother,
+                    authorityHero,
+                    normalizedMonth,
+                    pregnancyKey,
+                    out targetLiability,
+                    out additionalLiability,
+                    out relationshipChangeApplied,
+                    out appliedCumulativeRelationshipPenalty);
             }
 
             DiagnosticLog.Info(
                 mother.Name + " withdrawal petition at normalized month "
                 + normalizedMonth + ": authority=" + authorityHero.Name
-                + " (" + authority.Kind + "), decision=" + decisionResult.Decision
-                + ", responsibility=" + responsibility
+                + " (" + authority.Kind + "), authority decision="
+                + resolution.AuthorityDecision + ", final decision="
+                + resolution.FinalDecision + ", responsibility="
+                + resolution.Responsibility + ", player resolved=" + playerResolved
                 + ", target liability=" + targetLiability
                 + ", newly recorded liability=" + additionalLiability
                 + ", relationship change applied=" + relationshipChangeApplied
                 + ", applied cumulative relationship penalty="
                 + appliedCumulativeRelationshipPenalty
-                + "; " + decisionResult.Explanation + ".");
+                + "; " + explanation + ".");
+        }
+
+        private void ApplyCommanderDenialConsequence(
+            Hero mother,
+            Hero authorityHero,
+            int normalizedMonth,
+            string pregnancyKey,
+            out int targetLiability,
+            out int additionalLiability,
+            out int relationshipChangeApplied,
+            out int appliedCumulativeRelationshipPenalty)
+        {
+            string liabilityKey = pregnancyKey + "|authority:" + HeroKey(authorityHero);
+            int alreadyRecorded;
+            _liabilityByPregnancyAndAuthority.TryGetValue(liabilityKey, out alreadyRecorded);
+
+            targetLiability = CommanderLiabilityCalculator.GetDefaultCumulativePenalty(
+                normalizedMonth);
+            additionalLiability = CommanderLiabilityCalculator.GetAdditionalPenalty(
+                alreadyRecorded,
+                targetLiability);
+            if (additionalLiability < 0)
+            {
+                _liabilityByPregnancyAndAuthority[liabilityKey] = targetLiability;
+            }
+
+            int alreadyAppliedRelationPenalty;
+            _appliedRelationPenaltyByPregnancyAndAuthority.TryGetValue(
+                liabilityKey,
+                out alreadyAppliedRelationPenalty);
+            int pendingRelationshipPenalty =
+                CommanderRelationPenaltyCalculator.GetPendingPenalty(
+                    normalizedMonth,
+                    alreadyAppliedRelationPenalty);
+
+            relationshipChangeApplied = 0;
+            appliedCumulativeRelationshipPenalty = alreadyAppliedRelationPenalty;
+            if (pendingRelationshipPenalty < 0
+                && TryApplyCommanderRelationshipPenalty(
+                    mother,
+                    authorityHero,
+                    liabilityKey,
+                    pendingRelationshipPenalty,
+                    targetLiability))
+            {
+                relationshipChangeApplied = pendingRelationshipPenalty;
+                appliedCumulativeRelationshipPenalty = targetLiability;
+                _appliedRelationPenaltyByPregnancyAndAuthority[liabilityKey] =
+                    targetLiability;
+            }
+        }
+
+        private int GetPendingRelationshipPenalty(
+            string pregnancyKey,
+            Hero authorityHero,
+            int normalizedMonth)
+        {
+            string liabilityKey = pregnancyKey + "|authority:" + HeroKey(authorityHero);
+            int alreadyApplied;
+            _appliedRelationPenaltyByPregnancyAndAuthority.TryGetValue(
+                liabilityKey,
+                out alreadyApplied);
+            return CommanderRelationPenaltyCalculator.GetPendingPenalty(
+                normalizedMonth,
+                alreadyApplied);
+        }
+
+        private bool HasFinalPlayerDecision(string requestKey)
+        {
+            int finalDecision;
+            return _finalDecisionByRequest.TryGetValue(requestKey, out finalDecision)
+                && finalDecision != (int)WithdrawalDecision.NoDecision;
         }
 
         public void Close(Hero mother, string reason)
@@ -314,6 +664,7 @@ namespace PregnantLordsExpanded.Campaign
             _protectedSettlementByPregnancy.Remove(pregnancyKey);
             _departureSequenceByPregnancy.Remove(pregnancyKey);
             RemoveKeysWithPrefix(_decisionByRequest, pregnancyKey + "|");
+            RemoveKeysWithPrefix(_finalDecisionByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(_authorityByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(
                 _liabilityByPregnancyAndAuthority,
@@ -667,6 +1018,8 @@ namespace PregnantLordsExpanded.Campaign
                 ?? new Dictionary<string, string>();
             _departureSequenceByPregnancy = _departureSequenceByPregnancy
                 ?? new Dictionary<string, int>();
+            _finalDecisionByRequest = _finalDecisionByRequest
+                ?? new Dictionary<string, int>();
         }
 
         private static void RemoveKeysWithPrefix<T>(
@@ -714,6 +1067,49 @@ namespace PregnantLordsExpanded.Campaign
             }
 
             return hero != null ? hero.GetHashCode().ToString() : string.Empty;
+        }
+
+        private sealed class PlayerPromptRequest
+        {
+            public PlayerPromptRequest(
+                Hero mother,
+                Hero authority,
+                WithdrawalAuthorityResult authorityResult,
+                int normalizedMonth,
+                string pregnancyKey,
+                string requestKey,
+                WithdrawalDecision authorityDecision,
+                string explanation,
+                bool pregnantPlayer)
+            {
+                Mother = mother;
+                Authority = authority;
+                AuthorityResult = authorityResult;
+                NormalizedMonth = normalizedMonth;
+                PregnancyKey = pregnancyKey;
+                RequestKey = requestKey;
+                AuthorityDecision = authorityDecision;
+                Explanation = explanation ?? string.Empty;
+                PregnantPlayer = pregnantPlayer;
+            }
+
+            public Hero Mother { get; }
+
+            public Hero Authority { get; }
+
+            public WithdrawalAuthorityResult AuthorityResult { get; }
+
+            public int NormalizedMonth { get; }
+
+            public string PregnancyKey { get; }
+
+            public string RequestKey { get; }
+
+            public WithdrawalDecision AuthorityDecision { get; }
+
+            public string Explanation { get; }
+
+            public bool PregnantPlayer { get; }
         }
     }
 }

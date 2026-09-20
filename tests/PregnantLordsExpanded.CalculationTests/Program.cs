@@ -45,6 +45,10 @@ namespace PregnantLordsExpanded.CalculationTests
             TestCommanderRelationPenalties();
 
             Console.WriteLine("All Milestone 2D commander relationship penalty tests passed.");
+
+            TestPlayerWithdrawalDecisions();
+
+            Console.WriteLine("All Milestone 2D-B player decision tests passed.");
             return 0;
         }
 
@@ -175,6 +179,106 @@ namespace PregnantLordsExpanded.CalculationTests
                 0,
                 CommanderRelationPenaltyCalculator.GetPendingPenalty(10, 0),
                 "invalid month creates no relationship penalty");
+        }
+
+        private static void TestPlayerWithdrawalDecisions()
+        {
+            PlayerWithdrawalResolution playerApproves =
+                PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(
+                    PlayerWithdrawalChoice.ApprovePetition);
+            AssertEqual(
+                WithdrawalDecision.Approve,
+                playerApproves.AuthorityDecision,
+                "player authority approval");
+            AssertEqual(
+                WithdrawalResponsibility.WithdrawalApproved,
+                playerApproves.Responsibility,
+                "player approval responsibility");
+            AssertEqual(false, playerApproves.ApplyCommanderRelationPenalty,
+                "player approval has no commander penalty");
+
+            PlayerWithdrawalResolution playerDenies =
+                PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(
+                    PlayerWithdrawalChoice.DenyPetition);
+            AssertEqual(
+                WithdrawalDecision.Deny,
+                playerDenies.FinalDecision,
+                "player authority denial");
+            AssertEqual(
+                WithdrawalResponsibility.CommanderOverride,
+                playerDenies.Responsibility,
+                "player denial responsibility");
+            AssertEqual(true, playerDenies.ApplyCommanderRelationPenalty,
+                "player denial applies commander penalty");
+
+            PlayerWithdrawalResolution selfWithdraws =
+                PlayerWithdrawalDecisionCalculator.ResolvePregnantPlayer(
+                    WithdrawalDecision.NoDecision,
+                    PlayerWithdrawalChoice.Withdraw);
+            AssertEqual(true, selfWithdraws.WithdrawalAuthorized,
+                "self-authorized player withdraws");
+            AssertEqual(
+                WithdrawalResponsibility.WithdrawalApproved,
+                selfWithdraws.Responsibility,
+                "self withdrawal responsibility");
+
+            PlayerWithdrawalResolution selfContinues =
+                PlayerWithdrawalDecisionCalculator.ResolvePregnantPlayer(
+                    WithdrawalDecision.NoDecision,
+                    PlayerWithdrawalChoice.ContinueCampaigning);
+            AssertEqual(
+                WithdrawalDecision.ContinueVoluntarily,
+                selfContinues.FinalDecision,
+                "self-authorized player continues voluntarily");
+            AssertEqual(
+                WithdrawalResponsibility.VoluntaryRefusal,
+                selfContinues.Responsibility,
+                "self continuation responsibility");
+
+            PlayerWithdrawalResolution continuesAfterApproval =
+                PlayerWithdrawalDecisionCalculator.ResolvePregnantPlayer(
+                    WithdrawalDecision.Approve,
+                    PlayerWithdrawalChoice.ContinueCampaigning);
+            AssertEqual(
+                WithdrawalResponsibility.VoluntaryRefusal,
+                continuesAfterApproval.Responsibility,
+                "player owns decision to remain after approval");
+            AssertEqual(false, continuesAfterApproval.ApplyCommanderRelationPenalty,
+                "approved withdrawal has no commander penalty");
+
+            PlayerWithdrawalResolution withdrawsDespiteDenial =
+                PlayerWithdrawalDecisionCalculator.ResolvePregnantPlayer(
+                    WithdrawalDecision.Deny,
+                    PlayerWithdrawalChoice.Withdraw);
+            AssertEqual(true, withdrawsDespiteDenial.WithdrawalAuthorized,
+                "player may withdraw despite denial");
+            AssertEqual(
+                WithdrawalResponsibility.WithdrawalApproved,
+                withdrawsDespiteDenial.Responsibility,
+                "leaving despite denial avoids later commander loss responsibility");
+            AssertEqual(true, withdrawsDespiteDenial.ApplyCommanderRelationPenalty,
+                "denial still damages commander relationship");
+
+            PlayerWithdrawalResolution remainsAsOrdered =
+                PlayerWithdrawalDecisionCalculator.ResolvePregnantPlayer(
+                    WithdrawalDecision.Deny,
+                    PlayerWithdrawalChoice.ContinueCampaigning);
+            AssertEqual(
+                WithdrawalResponsibility.CommanderOverride,
+                remainsAsOrdered.Responsibility,
+                "commander owns ordered continuation");
+            AssertEqual(true, remainsAsOrdered.ApplyCommanderRelationPenalty,
+                "ordered continuation applies commander penalty");
+
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(
+                    PlayerWithdrawalChoice.Withdraw),
+                "authority prompt rejects pregnant-player choice");
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => PlayerWithdrawalDecisionCalculator.ResolvePregnantPlayer(
+                    WithdrawalDecision.Approve,
+                    PlayerWithdrawalChoice.DenyPetition),
+                "pregnant-player prompt rejects authority choice");
         }
 
         private static void TestAuthorityResolution()

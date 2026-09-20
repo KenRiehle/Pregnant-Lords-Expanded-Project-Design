@@ -26,6 +26,15 @@ namespace PregnantLordsExpanded.Withdrawal
         ForcedCircumstances = 4
     }
 
+    public enum PlayerWithdrawalChoice
+    {
+        None = 0,
+        ApprovePetition = 1,
+        DenyPetition = 2,
+        Withdraw = 3,
+        ContinueCampaigning = 4
+    }
+
     public enum IndependentWithdrawalAuthorityMode
     {
         ClanLeader = 0,
@@ -206,6 +215,31 @@ namespace PregnantLordsExpanded.Withdrawal
         public int ApprovalScore { get; }
 
         public string Explanation { get; }
+    }
+
+    public sealed class PlayerWithdrawalResolution
+    {
+        public PlayerWithdrawalResolution(
+            WithdrawalDecision authorityDecision,
+            WithdrawalDecision finalDecision,
+            WithdrawalResponsibility responsibility,
+            bool applyCommanderRelationPenalty)
+        {
+            AuthorityDecision = authorityDecision;
+            FinalDecision = finalDecision;
+            Responsibility = responsibility;
+            ApplyCommanderRelationPenalty = applyCommanderRelationPenalty;
+        }
+
+        public WithdrawalDecision AuthorityDecision { get; }
+
+        public WithdrawalDecision FinalDecision { get; }
+
+        public WithdrawalResponsibility Responsibility { get; }
+
+        public bool ApplyCommanderRelationPenalty { get; }
+
+        public bool WithdrawalAuthorized => FinalDecision == WithdrawalDecision.Approve;
     }
 
     public sealed class ProtectedRestTransitionInput

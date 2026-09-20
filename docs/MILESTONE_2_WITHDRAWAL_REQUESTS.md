@@ -6,11 +6,12 @@
   (live-tested on build `1.5.3.122374`)
 - Milestone 1 is preserved at tag `v0.1.0-milestone1`.
 - Milestones 2A through 2C began as and completed a **diagnostic-only implementation**.
-- Milestone 2D activates only the AI commander-denial relationship consequence.
+- Milestone 2D-A activates commander-denial relationship consequences.
+- Milestone 2D-B adds save-safe player decision prompts and is awaiting live validation.
 - This milestone decides when a withdrawal request is due, who has authority to answer it,
   what that answer means, and who is responsible for continued campaigning.
 - It does not yet remove a hero from a party, relocate her, add pregnancy loss risk, create an
-  escort quest, prompt a player authority, or enforce postpartum recovery.
+  escort quest, or enforce postpartum recovery.
 
 The diagnostic boundary is deliberate. Authority and responsibility must be proven in live
 campaigns before the mod changes campaign state.
@@ -207,10 +208,10 @@ authority or voluntary continuation when the mother is her own authority. This f
 provisional: Milestone 2B logs every component so live evidence can guide tuning before any
 decision changes gameplay.
 
-## Active AI Commander Relationship Liability
+## Active Commander Relationship Liability
 
 Milestone 2A calculated and logged liability without changing relationships. Milestone 2D applies
-these defaults when an AI commander denies a withdrawal petition. They remain subject to live-test
+these defaults when a commander denies a withdrawal petition. They remain subject to live-test
 review and later MCM adjustment.
 
 | Latest refused month | Target cumulative mother-to-commander penalty |
@@ -365,8 +366,21 @@ Only after 2C passes live tests:
 - **2D-B:** Add player decision prompts and explicit player agency.
 - **2D-C:** Allow approved decisions to authorize later physical withdrawal actions.
 
-The current implementation is 2D-A only. It does not move a party, force a mother home, or choose
-on behalf of the player.
+The current implementation includes 2D-B. It presents explicit choices instead of choosing on
+behalf of the player, but it does not yet move a party or force a mother home.
+
+Player decisions use these rules:
+
+- An NPC petitioning a player commander can be approved or denied by the player.
+- A pregnant player under an AI commander sees that commander's decision but retains the final
+  choice to withdraw or remain.
+- A pregnant player who is her own authority chooses withdrawal or voluntary continuation.
+- An AI commander's denial causes its relationship consequence even if the player withdraws
+  anyway, because the harmful order was still issued.
+- Withdrawing despite a denial records final responsibility as `WithdrawalApproved`; the
+  commander is not blamed for a later field loss that occurs after an authorized departure.
+- Player responses are saved per request, and a pending response can be presented again after
+  loading without repeating a completed choice or relationship penalty.
 
 ### Milestone 2D-A Validation Evidence
 
@@ -431,8 +445,17 @@ Milestone 2 diagnostics are complete only when all of the following are demonstr
 29. Save/load does not repeat a relationship penalty already applied.
 30. A diagnostic liability saved by an older build does not suppress the first active Milestone
     2D relationship consequence.
-31. Approvals, self-authorized voluntary continuation, forced circumstances, and player-authority
-    requests apply no automatic commander relationship penalty.
+31. Approvals, self-authorized voluntary continuation, and forced circumstances apply no
+    commander relationship penalty.
+32. A player commander can approve or deny an NPC petition without the mod choosing for the
+    player.
+33. A player commander's denial applies the same cumulative relationship rules as an AI denial.
+34. A pregnant player retains the final choice to withdraw or continue after an AI decision.
+35. Withdrawing despite an AI denial records approval as the final outcome while applying the
+    relationship consequence for the denial itself.
+36. Continuing after an approval records `VoluntaryRefusal`; remaining under a denied order
+    records `CommanderOverride`.
+37. Completed player responses and their relationship effects do not repeat after save/load.
 
 ## Explicitly Deferred Features
 

@@ -18,14 +18,16 @@ subsequently revalidated on Bannerlord 1.5.3.122374. The source tree implements:
 - Birth and non-birth pregnancy-ending diagnostics
 - Withdrawal authority, AI decision, and provisional responsibility diagnostics
 - Protected settlement-rest and voluntary-departure diagnostics
-- One-time cumulative relationship penalties when an AI commander denies withdrawal
+- One-time cumulative relationship penalties when a commander denies withdrawal
+- Save-safe player prompts when the player is the authority or the pregnant hero
 - No withdrawal, teleportation, party changes, combat risks, fertility changes, or birth replacement
 
 Milestones 2A through 2D-A have passed automated and live campaign tests on Bannerlord
 1.5.3.122374. Milestone 2D-A converts an AI commander's recorded denial liability into a native
 Bannerlord relationship change, applies only the difference between cumulative tiers, and
-persists its one-time ledger across save/load. Player decisions and physical withdrawal remain
-deferred.
+persists its one-time ledger across save/load. Milestone 2D-B adds player decisions and has passed
+automated calculation tests; live campaign validation remains pending. Physical withdrawal
+remains deferred.
 
 Supporting specifications:
 
@@ -92,6 +94,12 @@ penalty exactly once per pregnancy and commander. Later denied months apply only
 difference needed to reach that month's target. The relationship change uses Bannerlord's native
 effective-relation rules; mods that alter those rules may change which effective noble pair owns
 the opinion without becoming a dependency of Pregnant Lords Expanded.
+
+When the player is the responsible commander, an NPC's petition presents an explicit approval or
+denial prompt. A pregnant player also retains the final choice to withdraw or continue after an
+AI commander's answer. Withdrawing despite a denial still records the commander's objection and
+relationship consequence, but responsibility for continued campaigning is not assigned to that
+commander. These decisions authorize later behavior; this milestone does not move either party.
 
 Outside an army, the default political authority for an independent noble who is not her clan
 leader is her clan leader. A later optional MCM setting may instead use the kingdom ruler or allow
