@@ -78,7 +78,7 @@ namespace PregnantLordsExpanded.Withdrawal
         public int MothersAdultSiblingPenalty { get; }
 
         public static FamilyReactionSettings Default => new FamilyReactionSettings(
-            -50,
+            -75,
             -50,
             -10,
             -5);

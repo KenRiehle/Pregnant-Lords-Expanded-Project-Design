@@ -49,6 +49,10 @@ namespace PregnantLordsExpanded.CalculationTests
             TestPlayerWithdrawalDecisions();
 
             Console.WriteLine("All Milestone 2D-B player decision tests passed.");
+
+            TestPregnancyBattleRisk();
+
+            Console.WriteLine("All Milestone 2D-C graduated consequence tests passed.");
             return 0;
         }
 
@@ -125,7 +129,7 @@ namespace PregnantLordsExpanded.CalculationTests
 
         private static void TestCommanderLiability()
         {
-            int[] expected = { 0, 0, 0, -25, -35, -45, -55, -65, -75 };
+            int[] expected = { 0, 0, 0, -5, -5, -5, -5, -5, -5 };
             for (int month = 1; month <= 9; month++)
             {
                 AssertEqual(
@@ -140,37 +144,37 @@ namespace PregnantLordsExpanded.CalculationTests
                 "invalid normalized month does not create liability");
 
             AssertEqual(
-                -10,
-                CommanderLiabilityCalculator.GetAdditionalPenalty(-25, -35),
-                "month 4 to month 5 delta");
+                0,
+                CommanderLiabilityCalculator.GetAdditionalPenalty(-5, -5),
+                "healthy renewed petition does not stack resentment");
             AssertEqual(
-                -55,
-                CommanderLiabilityCalculator.GetAdditionalPenalty(0, -55),
-                "new commander receives current target");
+                -5,
+                CommanderLiabilityCalculator.GetAdditionalPenalty(0, -5),
+                "new commander receives the minor denial target");
             AssertEqual(
                 0,
-                CommanderLiabilityCalculator.GetAdditionalPenalty(-55, -55),
+                CommanderLiabilityCalculator.GetAdditionalPenalty(-5, -5),
                 "same tier does not repeat");
             AssertEqual(
                 0,
-                CommanderLiabilityCalculator.GetAdditionalPenalty(-65, -55),
+                CommanderLiabilityCalculator.GetAdditionalPenalty(-25, -5),
                 "liability never reverses automatically");
         }
 
         private static void TestCommanderRelationPenalties()
         {
             AssertEqual(
-                -35,
+                -5,
                 CommanderRelationPenaltyCalculator.GetPendingPenalty(5, 0),
-                "upgraded save applies the full current tier from a fresh relationship ledger");
-            AssertEqual(
-                -10,
-                CommanderRelationPenaltyCalculator.GetPendingPenalty(5, -25),
-                "month 5 applies only the difference after a month 4 relationship penalty");
+                "fresh denial applies the minor healthy target");
             AssertEqual(
                 0,
-                CommanderRelationPenaltyCalculator.GetPendingPenalty(5, -35),
-                "same denial tier cannot repeat its relationship penalty");
+                CommanderRelationPenaltyCalculator.GetPendingPenalty(5, -5),
+                "renewed petition does not stack healthy denial resentment");
+            AssertEqual(
+                0,
+                CommanderRelationPenaltyCalculator.GetPendingPenalty(5, -25),
+                "revised target never refunds an older stronger penalty");
             AssertEqual(
                 0,
                 CommanderRelationPenaltyCalculator.GetPendingPenalty(3, 0),
@@ -179,6 +183,160 @@ namespace PregnantLordsExpanded.CalculationTests
                 0,
                 CommanderRelationPenaltyCalculator.GetPendingPenalty(10, 0),
                 "invalid month creates no relationship penalty");
+        }
+
+        private static void TestPregnancyBattleRisk()
+        {
+            PregnancyBattleRiskResult unhurt = CalculateBattleRisk(
+                true,
+                false,
+                100.0,
+                75.0,
+                WithdrawalResponsibility.CommanderOverride);
+            AssertEqual(false, unhurt.ShouldEvaluate,
+                "seventy-five percent health does not qualify");
+            AssertEqual(0, unhurt.PregnancyLossChancePercent,
+                "unhurt pregnancy has no battle loss roll");
+
+            PregnancyBattleRiskResult significant = CalculateBattleRisk(
+                true,
+                false,
+                100.0,
+                74.0,
+                WithdrawalResponsibility.CommanderOverride);
+            AssertEqual(true, significant.ShouldEvaluate,
+                "health below seventy-five percent qualifies");
+            AssertEqual(PregnancyBattleInjurySeverity.Significant,
+                significant.InjurySeverity,
+                "fifty to seventy-four percent is significant");
+            AssertEqual(10, significant.PregnancyLossChancePercent,
+                "significant wound pregnancy-loss chance");
+            AssertEqual(-10, significant.ResponsiblePartyRelationTarget,
+                "significant wound commander relation target");
+
+            PregnancyBattleRiskResult exactFifty = CalculateBattleRisk(
+                true,
+                false,
+                100.0,
+                50.0,
+                WithdrawalResponsibility.CommanderOverride);
+            AssertEqual(PregnancyBattleInjurySeverity.Significant,
+                exactFifty.InjurySeverity,
+                "exactly fifty percent remains significant");
+            AssertEqual(10, exactFifty.PregnancyLossChancePercent,
+                "exactly fifty percent uses significant risk");
+
+            PregnancyBattleRiskResult severe = CalculateBattleRisk(
+                true,
+                false,
+                90.0,
+                49.0,
+                WithdrawalResponsibility.CommanderOverride);
+            AssertEqual(PregnancyBattleInjurySeverity.Severe,
+                severe.InjurySeverity,
+                "twenty-five to forty-nine percent is severe");
+            AssertEqual(30, severe.PregnancyLossChancePercent,
+                "severe wound pregnancy-loss chance");
+            AssertEqual(-25, severe.ResponsiblePartyRelationTarget,
+                "severe wound commander relation target");
+            AssertEqual(true, severe.IsPregnancyLossRoll(29),
+                "severe wound roll below thirty loses pregnancy");
+            AssertEqual(false, severe.IsPregnancyLossRoll(30),
+                "severe wound roll at thirty preserves pregnancy");
+
+            PregnancyBattleRiskResult exactTwentyFive = CalculateBattleRisk(
+                true,
+                false,
+                100.0,
+                25.0,
+                WithdrawalResponsibility.CommanderOverride);
+            AssertEqual(PregnancyBattleInjurySeverity.Severe,
+                exactTwentyFive.InjurySeverity,
+                "exactly twenty-five percent remains severe");
+            AssertEqual(30, exactTwentyFive.PregnancyLossChancePercent,
+                "exactly twenty-five percent uses severe risk");
+
+            PregnancyBattleRiskResult critical = CalculateBattleRisk(
+                true,
+                false,
+                60.0,
+                24.0,
+                WithdrawalResponsibility.CommanderOverride);
+            AssertEqual(PregnancyBattleInjurySeverity.Critical,
+                critical.InjurySeverity,
+                "below twenty-five percent is critical");
+            AssertEqual(50, critical.PregnancyLossChancePercent,
+                "critical wound pregnancy-loss chance");
+            AssertEqual(-35, critical.ResponsiblePartyRelationTarget,
+                "critical wound commander relation target");
+
+            PregnancyBattleRiskResult voluntary = CalculateBattleRisk(
+                true,
+                false,
+                100.0,
+                40.0,
+                WithdrawalResponsibility.VoluntaryRefusal);
+            AssertEqual(30, voluntary.PregnancyLossChancePercent,
+                "voluntary continuation does not remove physical risk");
+            AssertEqual(0, voluntary.ResponsiblePartyRelationTarget,
+                "voluntary continuation does not blame commander");
+
+            PregnancyBattleRiskResult noNewDamage = CalculateBattleRisk(
+                true,
+                false,
+                40.0,
+                40.0,
+                WithdrawalResponsibility.CommanderOverride);
+            AssertEqual(false, noNewDamage.ShouldEvaluate,
+                "pre-existing low health without new damage cannot reroll");
+
+            PregnancyBattleRiskResult processed = CalculateBattleRisk(
+                true,
+                true,
+                100.0,
+                20.0,
+                WithdrawalResponsibility.CommanderOverride);
+            AssertEqual(false, processed.ShouldEvaluate,
+                "processed battle cannot reroll after reload");
+
+            PregnancyBattleRiskResult notPregnant = CalculateBattleRisk(
+                false,
+                false,
+                100.0,
+                20.0,
+                WithdrawalResponsibility.CommanderOverride);
+            AssertEqual(false, notPregnant.ShouldEvaluate,
+                "non-pregnant hero never receives pregnancy battle roll");
+
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => severe.IsPregnancyLossRoll(100),
+                "pregnancy-loss roll validates range");
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => CalculateBattleRisk(
+                    true,
+                    false,
+                    101.0,
+                    20.0,
+                    WithdrawalResponsibility.CommanderOverride),
+                "battle risk validates health percentage");
+        }
+
+        private static PregnancyBattleRiskResult CalculateBattleRisk(
+            bool isPregnant,
+            bool battleAlreadyProcessed,
+            double healthBefore,
+            double healthAfter,
+            WithdrawalResponsibility responsibility)
+        {
+            return PregnancyBattleRiskCalculator.Calculate(
+                new PregnancyBattleRiskInput
+                {
+                    IsPregnant = isPregnant,
+                    BattleAlreadyProcessed = battleAlreadyProcessed,
+                    HealthBeforeBattlePercent = healthBefore,
+                    HealthAfterBattlePercent = healthAfter,
+                    Responsibility = responsibility
+                });
         }
 
         private static void TestPlayerWithdrawalDecisions()
@@ -372,7 +530,7 @@ namespace PregnantLordsExpanded.CalculationTests
                     FamilyReactionSettings.Default);
 
             AssertEqual(6, commanderReactions.Count, "all family roles react to commander");
-            AssertReaction(commanderReactions, "mother", -50);
+            AssertReaction(commanderReactions, "mother", -75);
             AssertReaction(commanderReactions, "husband", -50);
             AssertReaction(commanderReactions, "parent_one", -10);
             AssertReaction(commanderReactions, "parent_two", -10);

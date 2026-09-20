@@ -7,7 +7,9 @@
 - Milestone 1 is preserved at tag `v0.1.0-milestone1`.
 - Milestones 2A through 2C began as and completed a **diagnostic-only implementation**.
 - Milestone 2D-A activates commander-denial relationship consequences.
-- Milestone 2D-B adds save-safe player decision prompts and is awaiting live validation.
+- Milestone 2D-B adds save-safe player decision prompts and has passed its first live branches.
+- Milestone 2D-C revises ordinary denial to a one-time minor consequence and adds pure,
+  automated graduated battle-risk calculations. No battle hook or loss roll is active yet.
 - This milestone decides when a withdrawal request is due, who has authority to answer it,
   what that answer means, and who is responsible for continued campaigning.
 - It does not yet remove a hero from a party, relocate her, add pregnancy loss risk, create an
@@ -211,21 +213,13 @@ decision changes gameplay.
 ## Active Commander Relationship Liability
 
 Milestone 2A calculated and logged liability without changing relationships. Milestone 2D applies
-these defaults when a commander denies a withdrawal petition. They remain subject to live-test
-review and later MCM adjustment.
+a relationship consequence when a commander denies a withdrawal petition. Live testing showed
+that escalating the penalty merely because another month passed was too severe. Milestone 2D-C
+therefore uses a one-time minor target of −5 for an ordinary denial in months 4–9.
 
-| Latest refused month | Target cumulative mother-to-commander penalty |
-|---:|---:|
-| 4 | −25 |
-| 5 | −35 |
-| 6 | −45 |
-| 7 | −55 |
-| 8 | −65 |
-| 9 | −75 |
-
-The active implementation applies only the difference between tiers. A commander who
-already incurred a target liability of −25 at month 4 receives only the additional −10 needed to
-reach −35 at month 5.
+Renewed petitions still occur each month and become narratively more urgent, but they do not add
+another routine penalty for the same commander and pregnancy. Stronger consequences require an
+actual later event, such as a significant wound or attributable pregnancy loss.
 
 The liability record is keyed by pregnancy and responsible hero. If command changes, each
 commander retains responsibility for the decisions that commander personally made. A new
@@ -243,9 +237,28 @@ Pregnant Lords Expanded does not require or patch either behavior.
 
 The previously saved diagnostic-liability ledger remains separate from the Milestone 2D ledger
 that records penalties actually applied. This is essential for upgrades: a denial recorded by an
-older build must not falsely suppress the first real relationship consequence. The first future
-denial applies the full current cumulative target, after which later tiers apply only their delta.
-The applied ledger is saved and prevents the same tier from being charged again after save/load.
+older diagnostic build must not falsely suppress the first real relationship consequence. The
+applied ledger is saved and prevents the same target from being charged again after save/load.
+If an older active build already applied more than −5, Milestone 2D-C never attempts to reverse
+or add to that historical relationship change.
+
+## Graduated Post-Battle Pregnancy Risk
+
+Milestone 2D-C provides a pure calculator and automated boundary tests for later campaign use.
+It performs no daily roll. A future battle hook will evaluate a pregnant hero once after a
+completed battle, only when her health declined during that battle.
+
+| Health after battle | Injury class | Pregnancy-loss chance | Commander relation target when responsible |
+|---:|---|---:|---:|
+| 75%–100% | None/minor | 0% | 0 |
+| 50%–74% | Significant | 10% | −10 |
+| 25%–49% | Severe | 30% | −25 |
+| Below 25% | Critical | 50% | −35 |
+
+The commander target applies only when a tracked `CommanderOverride` kept her in the field.
+When the mother continued voluntarily, the physical risk is the same but no commander is blamed.
+A battle identity must be persisted before enabling the hook so save/load cannot reroll the same
+outcome.
 
 ## Attributable Child-Loss Family Reactions
 
@@ -258,7 +271,7 @@ The penalty is applied between each affected relative and the hero who is respon
 
 | Affected relative | Default relation change | MCM range |
 |---|---:|---:|
-| Pregnant mother, when another hero is responsible | −50 | −100 to 0 |
+| Pregnant mother, when another hero is responsible | −75 | −100 to 0 |
 | Husband or other recorded parent of the child | −50 | −100 to 0 |
 | Each living parent of the pregnant mother | −10 | −100 to 0 |
 | Each living adult sibling of the pregnant mother | −5 | −100 to 0 |
@@ -364,10 +377,14 @@ Only after 2C passes live tests:
 - **2D-A:** Apply AI commander-denial relationship deltas exactly once through the native
   relationship action while preserving the diagnostic trail.
 - **2D-B:** Add player decision prompts and explicit player agency.
-- **2D-C:** Allow approved decisions to authorize later physical withdrawal actions.
+- **2D-C:** Recalibrate ordinary denial consequences and add pure graduated battle-risk
+  calculations with automated boundary tests.
+- **2D-D:** Allow approved decisions to authorize later physical withdrawal actions.
 
-The current implementation includes 2D-B. It presents explicit choices instead of choosing on
-behalf of the player, but it does not yet move a party or force a mother home.
+The current implementation includes 2D-C. It presents explicit choices instead of choosing on
+behalf of the player, uses the revised one-time minor denial consequence, and exposes the tested
+risk calculation without invoking it in a campaign. It does not yet move a party, force a mother
+home, or end a pregnancy.
 
 Player decisions use these rules:
 
@@ -385,6 +402,10 @@ Player decisions use these rules:
 ### Milestone 2D-A Validation Evidence
 
 Automated calculations and two live sessions passed on Bannerlord `1.5.3.122374`.
+
+The values below document the superseded escalating-liability build. They remain useful proof
+that native relationship mutation, per-commander ledgers, and save/load deduplication worked, but
+Milestone 2D-C replaces those numerical targets with a one-time −5 ordinary-denial target.
 
 The initial activation session produced 43 petitions: 27 approvals and 16 AI denials. All 16
 denials applied a relationship consequence, every observed before/after difference matched the
@@ -405,6 +426,13 @@ changes. Only newly reached denial tiers applied: Popilia received the next −1
 received −20 to advance an existing commander from −45 to the month-8 target of −65. The resulting
 relations again matched the requested changes exactly. Both sessions saved and exited cleanly,
 and neither produced a Pregnant Lords Expanded exception.
+
+### Milestone 2D-B Initial Player Validation Evidence
+
+The player-command branch was exercised from a save immediately before the month-4 petition.
+The denial choice recorded the player's answer and applied the then-current relationship change.
+A second save at month 5 proved that a renewed petition appeared and could be approved without a
+relationship change. Those saves are retained as matched branch-test points for Milestone 2D-C.
 
 ## Acceptance Tests
 
@@ -440,8 +468,8 @@ Milestone 2 diagnostics are complete only when all of the following are demonstr
 24. Defense of the protected settlement creates no voluntary blame or withdrawal petition.
 25. Continued settlement defense does not repeat its transition log after save/load.
 26. Capture or an unresolved removal from protected rest creates no voluntary blame.
-27. An AI commander's first denial applies the full current cumulative relationship target.
-28. A later denial by that commander applies only the difference to the next target tier.
+27. An AI commander's first denial applies the one-time −5 ordinary-denial target.
+28. A later routine denial by that commander in the same pregnancy applies no additional penalty.
 29. Save/load does not repeat a relationship penalty already applied.
 30. A diagnostic liability saved by an older build does not suppress the first active Milestone
     2D relationship consequence.
@@ -449,13 +477,17 @@ Milestone 2 diagnostics are complete only when all of the following are demonstr
     commander relationship penalty.
 32. A player commander can approve or deny an NPC petition without the mod choosing for the
     player.
-33. A player commander's denial applies the same cumulative relationship rules as an AI denial.
+33. A player commander's denial applies the same one-time relationship rule as an AI denial.
 34. A pregnant player retains the final choice to withdraw or continue after an AI decision.
 35. Withdrawing despite an AI denial records approval as the final outcome while applying the
     relationship consequence for the denial itself.
 36. Continuing after an approval records `VoluntaryRefusal`; remaining under a denied order
     records `CommanderOverride`.
 37. Completed player responses and their relationship effects do not repeat after save/load.
+38. Pure battle-risk calculations use exact 75%, 50%, and 25% health boundaries and roll no risk
+    when battle health did not decline.
+39. Voluntary continuation preserves physical injury risk but assigns no commander relationship
+    target.
 
 ## Explicitly Deferred Features
 

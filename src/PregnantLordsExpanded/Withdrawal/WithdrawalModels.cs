@@ -81,6 +81,14 @@ namespace PregnantLordsExpanded.Withdrawal
         UnresolvedDeparture = 6
     }
 
+    public enum PregnancyBattleInjurySeverity
+    {
+        None = 0,
+        Significant = 1,
+        Severe = 2,
+        Critical = 3
+    }
+
     public sealed class WithdrawalMonthResult
     {
         public WithdrawalMonthResult(int normalizedMonth, WithdrawalMonthStage stage)
@@ -240,6 +248,54 @@ namespace PregnantLordsExpanded.Withdrawal
         public bool ApplyCommanderRelationPenalty { get; }
 
         public bool WithdrawalAuthorized => FinalDecision == WithdrawalDecision.Approve;
+    }
+
+    public sealed class PregnancyBattleRiskInput
+    {
+        public bool IsPregnant { get; set; }
+
+        public bool BattleAlreadyProcessed { get; set; }
+
+        public double HealthBeforeBattlePercent { get; set; }
+
+        public double HealthAfterBattlePercent { get; set; }
+
+        public WithdrawalResponsibility Responsibility { get; set; }
+    }
+
+    public sealed class PregnancyBattleRiskResult
+    {
+        public PregnancyBattleRiskResult(
+            bool shouldEvaluate,
+            PregnancyBattleInjurySeverity injurySeverity,
+            int pregnancyLossChancePercent,
+            int responsiblePartyRelationTarget)
+        {
+            ShouldEvaluate = shouldEvaluate;
+            InjurySeverity = injurySeverity;
+            PregnancyLossChancePercent = pregnancyLossChancePercent;
+            ResponsiblePartyRelationTarget = responsiblePartyRelationTarget;
+        }
+
+        public bool ShouldEvaluate { get; }
+
+        public PregnancyBattleInjurySeverity InjurySeverity { get; }
+
+        public int PregnancyLossChancePercent { get; }
+
+        public int ResponsiblePartyRelationTarget { get; }
+
+        public bool IsPregnancyLossRoll(int rollFromZeroToNinetyNine)
+        {
+            if (rollFromZeroToNinetyNine < 0 || rollFromZeroToNinetyNine > 99)
+            {
+                throw new System.ArgumentOutOfRangeException(
+                    nameof(rollFromZeroToNinetyNine));
+            }
+
+            return ShouldEvaluate
+                && rollFromZeroToNinetyNine < PregnancyLossChancePercent;
+        }
     }
 
     public sealed class ProtectedRestTransitionInput

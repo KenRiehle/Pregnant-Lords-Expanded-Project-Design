@@ -11,10 +11,11 @@ using TaleWorlds.Library;
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Milestone 2B-2D campaign adapter. It records warnings, petitions, authority,
+    /// Milestone 2B-2D-C campaign adapter. It records warnings, petitions, authority,
     /// AI decisions, responsibility, and transitions into or out of protected rest.
-    /// Milestone 2D applies commander-denial relationship penalties and presents
-    /// save-safe player decisions. It still never moves a hero or performs travel.
+    /// Milestone 2D-C applies the revised one-time minor commander-denial relationship
+    /// penalty and presents save-safe player decisions. It still never moves a hero,
+    /// performs travel, or invokes the graduated battle-risk calculator.
     /// </summary>
     internal sealed class WithdrawalDiagnosticsCoordinator
     {
@@ -373,8 +374,8 @@ namespace PregnantLordsExpanded.Campaign
                 request.Authority,
                 request.NormalizedMonth);
             string penaltyText = pendingPenalty < 0
-                ? " Ordering her to remain will change her relationship with you by "
-                    + pendingPenalty + "."
+                ? " Ordering her to remain will cause an additional relationship loss of "
+                    + Math.Abs(pendingPenalty) + "."
                 : string.Empty;
 
             string text = request.Mother.Name + " is in normalized pregnancy month "
@@ -423,8 +424,8 @@ namespace PregnantLordsExpanded.Campaign
                 authorityText = request.Authority.Name
                     + " has ordered you to remain in the field."
                     + (pendingPenalty < 0
-                        ? " The order will change your relationship by "
-                            + pendingPenalty + "."
+                        ? " The order will cause an additional relationship loss of "
+                            + Math.Abs(pendingPenalty) + "."
                         : string.Empty);
                 affirmativeText = "Withdraw Anyway";
                 negativeText = "Remain as Ordered";
@@ -694,7 +695,7 @@ namespace PregnantLordsExpanded.Campaign
                 DiagnosticLog.Info(
                     mother.Name + " relationship consequence applied against "
                     + authority.Name + " for a denied withdrawal petition: requested change="
-                    + relationshipChange + ", target cumulative penalty="
+                    + relationshipChange + ", target relationship penalty="
                     + targetCumulativePenalty + ", effective relation before=" + before
                     + ", effective relation after=" + after + ".");
                 return true;

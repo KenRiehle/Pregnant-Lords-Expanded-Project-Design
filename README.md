@@ -18,16 +18,18 @@ subsequently revalidated on Bannerlord 1.5.3.122374. The source tree implements:
 - Birth and non-birth pregnancy-ending diagnostics
 - Withdrawal authority, AI decision, and provisional responsibility diagnostics
 - Protected settlement-rest and voluntary-departure diagnostics
-- One-time cumulative relationship penalties when a commander denies withdrawal
+- One-time minor relationship penalty when a commander denies withdrawal
 - Save-safe player prompts when the player is the authority or the pregnant hero
+- Pure, automated post-battle pregnancy-risk calculations awaiting a campaign hook
 - No withdrawal, teleportation, party changes, combat risks, fertility changes, or birth replacement
 
-Milestones 2A through 2D-A have passed automated and live campaign tests on Bannerlord
+Milestones 2A through 2D-B have passed automated and live campaign tests on Bannerlord
 1.5.3.122374. Milestone 2D-A converts an AI commander's recorded denial liability into a native
-Bannerlord relationship change, applies only the difference between cumulative tiers, and
-persists its one-time ledger across save/load. Milestone 2D-B adds player decisions and has passed
-automated calculation tests; live campaign validation remains pending. Physical withdrawal
-remains deferred.
+Bannerlord relationship change and persists its one-time ledger across save/load. Milestone 2D-B
+adds save-safe player decisions. Milestone 2D-C revises an ordinary denial to a one-time minor
+−5 relationship target and adds pure graduated post-battle risk calculations for automated
+testing. No battle hook or pregnancy-loss roll is active yet. Physical withdrawal remains
+deferred.
 
 Supporting specifications:
 
@@ -89,11 +91,12 @@ commander refuses, responsibility is recorded as `CommanderOverride`. A hero who
 military authority may continue voluntarily, which is recorded as `VoluntaryRefusal`. A genuine
 inability to depart safely is recorded separately as `ForcedCircumstances`.
 
-An AI commander's denial applies the configured cumulative mother-to-commander relationship
-penalty exactly once per pregnancy and commander. Later denied months apply only the additional
-difference needed to reach that month's target. The relationship change uses Bannerlord's native
-effective-relation rules; mods that alter those rules may change which effective noble pair owns
-the opinion without becoming a dependency of Pregnant Lords Expanded.
+An AI commander's denial applies a minor mother-to-commander relationship penalty exactly once
+per pregnancy and commander. The default target is −5. Renewed petitions remain increasingly
+urgent, but routine denials do not stack into catastrophic resentment without an actual harmful
+outcome. The relationship change uses Bannerlord's native effective-relation rules; mods that
+alter those rules may change which effective noble pair owns the opinion without becoming a
+dependency of Pregnant Lords Expanded.
 
 When the player is the responsible commander, an NPC's petition presents an explicit approval or
 denial prompt. A pregnant player also retains the final choice to withdraw or continue after an
@@ -113,7 +116,7 @@ not count as a voluntary return to campaigning. Capture or another unresolved fo
 not automatically blame her.
 
 If a later child loss is causally attributed to a refusal or override, family reactions target the
-responsible hero. Proposed configurable defaults are −50 from the pregnant mother (when someone
+responsible hero. Proposed configurable defaults are −75 from the pregnant mother (when someone
 else is responsible), −50 from the husband or other recorded parent, −10 from each living parent
 of the mother, and −5 from each living adult sibling. Each role uses an independent MCM slider
 from −100 to 0; self-relations and duplicate relatives are skipped.
@@ -413,11 +416,11 @@ Recommended order:
 1. Pregnancy detection and normalized progress — complete
 2. Withdrawal warnings, petitions, authority, and responsibility diagnostics — complete
 3. AI commander-denial relationship liability — complete and live-tested
-4. Activated withdrawal actions and player decisions
-5. Safe destination, native travel, and narrative handoff
+4. Player withdrawal decisions and revised consequence calculations — active/live-tested in part
+5. Approved withdrawal action, safe destination, native travel, and narrative handoff
 6. Party-leader transition and escort quest/simulation
 7. Postpartum recovery
-8. Combat injury pregnancy risk
+8. Post-battle pregnancy-risk campaign hook
 9. Chivalric captivity dialogue and Maternal Safe Conduct
 10. Prisoner complications, Blood Debt, and feud resolution
 11. Additional dialogue, persuasion, and social reactions

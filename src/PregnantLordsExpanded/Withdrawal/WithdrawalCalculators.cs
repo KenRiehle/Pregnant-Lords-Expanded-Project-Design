@@ -72,21 +72,9 @@ namespace PregnantLordsExpanded.Withdrawal
                 return 0;
             }
 
-            switch (normalizedMonth)
-            {
-                case 4:
-                    return -25;
-                case 5:
-                    return -35;
-                case 6:
-                    return -45;
-                case 7:
-                    return -55;
-                case 8:
-                    return -65;
-                default:
-                    return -75;
-            }
+            // A denial by itself causes minor resentment. Injury and attributable
+            // pregnancy loss escalate from this target in later consequence stages.
+            return -5;
         }
 
         public static int GetAdditionalPenalty(int alreadyApplied, int targetCumulativePenalty)
