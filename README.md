@@ -18,18 +18,20 @@ subsequently revalidated on Bannerlord 1.5.3.122374. The source tree implements:
 - Birth and non-birth pregnancy-ending diagnostics
 - Withdrawal authority, AI decision, and provisional responsibility diagnostics
 - Protected settlement-rest and voluntary-departure diagnostics
-- One-time minor relationship penalty when a commander denies withdrawal
+- One routine −5 relationship penalty for each separately denied normalized month 4–9
 - Save-safe player prompts when the player is the authority or the pregnant hero
 - Pure, automated post-battle pregnancy-risk calculations awaiting a campaign hook
-- No withdrawal, teleportation, party changes, combat risks, fertility changes, or birth replacement
+- Native delayed withdrawal travel for eligible approved NPC party members
+- No automatic player-character or party-leader withdrawal yet
+- No active pregnancy-loss roll, fertility change, or birth replacement
 
-Milestones 2A through 2D-B have passed automated and live campaign tests on Bannerlord
-1.5.3.122374. Milestone 2D-A converts an AI commander's recorded denial liability into a native
-Bannerlord relationship change and persists its one-time ledger across save/load. Milestone 2D-B
-adds save-safe player decisions. Milestone 2D-C revises an ordinary denial to a one-time minor
-−5 relationship target and adds pure graduated post-battle risk calculations for automated
-testing. No battle hook or pregnancy-loss roll is active yet. Physical withdrawal remains
-deferred.
+Milestones 2A through 2D-D have passed automated and live campaign tests on Bannerlord
+1.5.3.122374. Milestone 2D-A activates native relationship changes, 2D-B adds save-safe player
+decisions, 2D-C adds pure graduated post-battle risk calculations, and 2D-D changes routine
+resentment to an additional −5 for each separately denied normalized month 4–9, with no duplicate
+charge on reload. Milestone 2D-E now begins Bannerlord-native delayed travel for eligible approved
+NPC party members. Player-character and party-leader withdrawal remain deferred. No battle hook
+or pregnancy-loss roll is active yet.
 
 Supporting specifications:
 
@@ -91,10 +93,10 @@ commander refuses, responsibility is recorded as `CommanderOverride`. A hero who
 military authority may continue voluntarily, which is recorded as `VoluntaryRefusal`. A genuine
 inability to depart safely is recorded separately as `ForcedCircumstances`.
 
-An AI commander's denial applies a minor mother-to-commander relationship penalty exactly once
-per pregnancy and commander. The default target is −5. Renewed petitions remain increasingly
-urgent, but routine denials do not stack into catastrophic resentment without an actual harmful
-outcome. The relationship change uses Bannerlord's native effective-relation rules; mods that
+A commander's denial applies a minor mother-to-commander relationship penalty once for each
+separately denied normalized month from 4 through 9. The default monthly change is −5, so routine
+resentment can total at most −30 across those six months. The same normalized month can never
+charge twice on daily ticks, repeated petitions, or save/reload. The relationship change uses Bannerlord's native effective-relation rules; mods that
 alter those rules may change which effective noble pair owns the opinion without becoming a
 dependency of Pregnant Lords Expanded.
 
@@ -102,7 +104,9 @@ When the player is the responsible commander, an NPC's petition presents an expl
 denial prompt. A pregnant player also retains the final choice to withdraw or continue after an
 AI commander's answer. Withdrawing despite a denial still records the commander's objection and
 relationship consequence, but responsibility for continued campaigning is not assigned to that
-commander. These decisions authorize later behavior; this milestone does not move either party.
+commander. For eligible non-player, non-party-leader NPCs, an approved final decision can now begin
+Bannerlord's native delayed travel to a friendly fortification. Player-character and party-leader
+movement remain deferred.
 
 Outside an army, the default political authority for an independent noble who is not her clan
 leader is her clan leader. A later optional MCM setting may instead use the kingdom ruler or allow
@@ -123,10 +127,11 @@ from −100 to 0; self-relations and duplicate relatives are skipped.
 
 ### Withdrawal Threshold
 
-After withdrawal is approved in a later milestone:
-- AI-controlled pregnant lords begin returning to safety
-- Player-clan pregnant heroes may follow separate configurable rules
-- The mod chooses a suitable friendly destination or clan handoff
+After withdrawal is approved:
+- Eligible AI-controlled pregnant party members begin Bannerlord-native delayed travel
+- Home/clan protection is preferred when it is a safe friendly fortification
+- Otherwise the nearest same-faction town or castle is selected
+- Player-character and pregnant party-leader movement remain deferred
 
 Preferred destination order can include:
 1. Home/clan fief when appropriate
@@ -145,8 +150,10 @@ Possible player-facing completion text:
 > Under a flag of truce, Areliana has been delivered safely into the protection of Clan Neretzes.
 > Her kin will escort her onward. Niphon is returning to friendly territory under safe conduct.
 
-The hero remains unavailable while Bannerlord reports the native Traveling state. The later
-withdrawal implementation must handle invalid or hostile destinations safely.
+The hero remains unavailable while Bannerlord reports the native Traveling state. The 2D-E
+execution ledger persists Pending/Traveling/Completed state and the selected destination so reload
+cannot start the same trip twice. If Bannerlord cancels a trip because the destination becomes
+invalid, the approval remains pending and a safe destination can be selected again.
 
 ## Later Milestone — Party Leadership and Escort
 
@@ -417,7 +424,7 @@ Recommended order:
 2. Withdrawal warnings, petitions, authority, and responsibility diagnostics — complete
 3. AI commander-denial relationship liability — complete and live-tested
 4. Player withdrawal decisions and revised consequence calculations — active/live-tested in part
-5. Approved withdrawal action, safe destination, native travel, and narrative handoff
+5. Approved NPC withdrawal action, safe destination, and native travel — active in 2D-E; narrative handoff/player/leader branches remain
 6. Party-leader transition and escort quest/simulation
 7. Postpartum recovery
 8. Post-battle pregnancy-risk campaign hook
