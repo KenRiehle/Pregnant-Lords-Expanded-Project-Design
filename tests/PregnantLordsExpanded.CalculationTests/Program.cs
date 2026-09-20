@@ -37,6 +37,10 @@ namespace PregnantLordsExpanded.CalculationTests
             TestAiWithdrawalDecisions();
 
             Console.WriteLine("All Milestone 2B diagnostic decision tests passed.");
+
+            TestProtectedRestTransitions();
+
+            Console.WriteLine("All Milestone 2C protected-rest transition tests passed.");
             return 0;
         }
 
@@ -347,6 +351,174 @@ namespace PregnantLordsExpanded.CalculationTests
             AssertThrows<ArgumentOutOfRangeException>(
                 () => new FamilyReactionSettings(1, -50, -10, -5),
                 "family penalty above slider range");
+        }
+
+        private static void TestProtectedRestTransitions()
+        {
+            ProtectedRestTransitionResult established =
+                ProtectedRestTransitionCalculator.Calculate(
+                    RestTransition(
+                        ProtectedRestState.Unknown,
+                        ProtectedRestState.ProtectedRest,
+                        string.Empty,
+                        "town_a"));
+            AssertEqual(
+                ProtectedRestTransitionKind.ProtectedRestEstablished,
+                established.Transition,
+                "initial protected rest is established");
+            AssertEqual(
+                ProtectedRestState.ProtectedRest,
+                established.NextState,
+                "protected rest state persists");
+            AssertEqual("town_a", established.ProtectedSettlementId, "rest settlement stored");
+
+            ProtectedRestTransitionResult unchanged =
+                ProtectedRestTransitionCalculator.Calculate(
+                    RestTransition(
+                        ProtectedRestState.ProtectedRest,
+                        ProtectedRestState.ProtectedRest,
+                        "town_a",
+                        "town_a"));
+            AssertEqual(
+                ProtectedRestTransitionKind.None,
+                unchanged.Transition,
+                "daily rest observation does not repeat event");
+
+            ProtectedRestTransitionResult voluntaryDeparture =
+                ProtectedRestTransitionCalculator.Calculate(
+                    RestTransition(
+                        ProtectedRestState.ProtectedRest,
+                        ProtectedRestState.Campaigning,
+                        "town_a",
+                        string.Empty));
+            AssertEqual(
+                ProtectedRestTransitionKind.PresumedVoluntaryDeparture,
+                voluntaryDeparture.Transition,
+                "leaving rest for field is presumed voluntary");
+            AssertEqual(
+                WithdrawalResponsibility.VoluntaryRefusal,
+                voluntaryDeparture.Responsibility,
+                "voluntary departure assigns mother responsibility");
+            AssertEqual(
+                true,
+                voluntaryDeparture.RequiresImmediatePetition,
+                "voluntary departure requests immediate petition");
+
+            ProtectedRestTransitionInput defenseInput = RestTransition(
+                ProtectedRestState.ProtectedRest,
+                ProtectedRestState.Campaigning,
+                "town_a",
+                "town_a");
+            defenseInput.IsDefendingProtectedSettlement = true;
+            ProtectedRestTransitionResult defense =
+                ProtectedRestTransitionCalculator.Calculate(defenseInput);
+            AssertEqual(
+                ProtectedRestTransitionKind.DefensiveMobilization,
+                defense.Transition,
+                "defense of resting settlement is permitted");
+            AssertEqual(
+                ProtectedRestState.ProtectedDefense,
+                defense.NextState,
+                "settlement protection remains during defense");
+            AssertEqual(
+                WithdrawalResponsibility.None,
+                defense.Responsibility,
+                "settlement defense assigns no blame");
+
+            ProtectedRestTransitionInput differentSettlementDefense = RestTransition(
+                ProtectedRestState.ProtectedRest,
+                ProtectedRestState.Campaigning,
+                "town_a",
+                "castle_b");
+            differentSettlementDefense.IsDefendingProtectedSettlement = true;
+            AssertEqual(
+                ProtectedRestTransitionKind.PresumedVoluntaryDeparture,
+                ProtectedRestTransitionCalculator.Calculate(
+                    differentSettlementDefense).Transition,
+                "defense exception applies only to the protected settlement");
+
+            defenseInput.PreviousState = ProtectedRestState.ProtectedDefense;
+            ProtectedRestTransitionResult continuedDefense =
+                ProtectedRestTransitionCalculator.Calculate(defenseInput);
+            AssertEqual(
+                ProtectedRestTransitionKind.None,
+                continuedDefense.Transition,
+                "continued settlement defense does not repeat event");
+
+            ProtectedRestTransitionResult leavesAfterDefense =
+                ProtectedRestTransitionCalculator.Calculate(
+                    RestTransition(
+                        ProtectedRestState.ProtectedDefense,
+                        ProtectedRestState.Campaigning,
+                        "town_a",
+                        string.Empty));
+            AssertEqual(
+                ProtectedRestTransitionKind.PresumedVoluntaryDeparture,
+                leavesAfterDefense.Transition,
+                "leaving after local defense resumes voluntary field responsibility");
+
+            ProtectedRestTransitionResult capture =
+                ProtectedRestTransitionCalculator.Calculate(
+                    RestTransition(
+                        ProtectedRestState.ProtectedRest,
+                        ProtectedRestState.Prisoner,
+                        "town_a",
+                        string.Empty));
+            AssertEqual(
+                ProtectedRestTransitionKind.ForcedRemoval,
+                capture.Transition,
+                "capture from protected rest is forced");
+            AssertEqual(
+                WithdrawalResponsibility.ForcedCircumstances,
+                capture.Responsibility,
+                "capture does not blame mother");
+
+            ProtectedRestTransitionResult unresolved =
+                ProtectedRestTransitionCalculator.Calculate(
+                    RestTransition(
+                        ProtectedRestState.ProtectedRest,
+                        ProtectedRestState.Unavailable,
+                        "town_a",
+                        string.Empty));
+            AssertEqual(
+                ProtectedRestTransitionKind.UnresolvedDeparture,
+                unresolved.Transition,
+                "unknown removal fails without voluntary blame");
+            AssertEqual(
+                WithdrawalResponsibility.ForcedCircumstances,
+                unresolved.Responsibility,
+                "unknown removal remains forced pending evidence");
+
+            ProtectedRestTransitionResult returned =
+                ProtectedRestTransitionCalculator.Calculate(
+                    RestTransition(
+                        ProtectedRestState.Campaigning,
+                        ProtectedRestState.ProtectedRest,
+                        string.Empty,
+                        "castle_b"));
+            AssertEqual(
+                ProtectedRestTransitionKind.ReturnedToProtectedRest,
+                returned.Transition,
+                "campaigner can return to protected rest");
+
+            AssertThrows<ArgumentNullException>(
+                () => ProtectedRestTransitionCalculator.Calculate(null),
+                "null protected-rest transition input");
+        }
+
+        private static ProtectedRestTransitionInput RestTransition(
+            ProtectedRestState previous,
+            ProtectedRestState observed,
+            string protectedSettlementId,
+            string observedSettlementId)
+        {
+            return new ProtectedRestTransitionInput
+            {
+                PreviousState = previous,
+                ObservedState = observed,
+                ProtectedSettlementId = protectedSettlementId,
+                ObservedSettlementId = observedSettlementId
+            };
         }
 
         private static WithdrawalAuthorityContext CampaigningMother()

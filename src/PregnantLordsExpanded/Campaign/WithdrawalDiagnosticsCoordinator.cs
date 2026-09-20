@@ -9,13 +9,14 @@ using TaleWorlds.CampaignSystem.Party;
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Milestone 2B campaign adapter. It records warnings, petitions, authority,
-    /// diagnostic AI decisions, and provisional liability. It never moves a hero
-    /// or changes a relationship.
+    /// Milestone 2B/2C campaign adapter. It records warnings, petitions, authority,
+    /// diagnostic AI decisions, provisional liability, and transitions into or out
+    /// of protected settlement rest. It never moves a hero or changes a relationship.
     /// </summary>
     internal sealed class WithdrawalDiagnosticsCoordinator
     {
         private const string SavePrefix = "PLE_M2B_";
+        private const string ProtectedRestSavePrefix = "PLE_M2C_";
 
         private Dictionary<string, int> _pregnancySequenceByMother =
             new Dictionary<string, int>();
@@ -32,6 +33,12 @@ namespace PregnantLordsExpanded.Campaign
         private Dictionary<string, string> _lastResponsibleHeroByPregnancy =
             new Dictionary<string, string>();
         private Dictionary<string, int> _lastResponsibilityByPregnancy =
+            new Dictionary<string, int>();
+        private Dictionary<string, int> _protectedRestStateByPregnancy =
+            new Dictionary<string, int>();
+        private Dictionary<string, string> _protectedSettlementByPregnancy =
+            new Dictionary<string, string>();
+        private Dictionary<string, int> _departureSequenceByPregnancy =
             new Dictionary<string, int>();
 
         public void SyncData(IDataStore dataStore)
@@ -60,6 +67,15 @@ namespace PregnantLordsExpanded.Campaign
             dataStore.SyncData(
                 SavePrefix + "LastResponsibilityByPregnancy",
                 ref _lastResponsibilityByPregnancy);
+            dataStore.SyncData(
+                ProtectedRestSavePrefix + "StateByPregnancy",
+                ref _protectedRestStateByPregnancy);
+            dataStore.SyncData(
+                ProtectedRestSavePrefix + "SettlementByPregnancy",
+                ref _protectedSettlementByPregnancy);
+            dataStore.SyncData(
+                ProtectedRestSavePrefix + "DepartureSequenceByPregnancy",
+                ref _departureSequenceByPregnancy);
 
             EnsureCollections();
         }
@@ -81,29 +97,45 @@ namespace PregnantLordsExpanded.Campaign
             }
 
             WithdrawalAuthorityContext authorityContext = CreateAuthorityContext(mother);
+            string motherId = HeroKey(mother);
+            string pregnancyKey = GetOrCreatePregnancyKey(motherId);
+            ProtectedRestTransitionResult protectedRestTransition =
+                ObserveProtectedRestTransition(
+                    mother,
+                    normalizedMonth,
+                    pregnancyKey,
+                    authorityContext);
+
             if (!authorityContext.IsCampaigning
                 || authorityContext.IsPrisoner
-                || authorityContext.IsResting)
+                || authorityContext.IsResting
+                || protectedRestTransition.NextState == ProtectedRestState.ProtectedDefense)
             {
                 // A resting or captive hero has no withdrawal decision to make. Do not
                 // mark the month as processed, because she may resume campaigning and
-                // require the current month's petition later.
+                // require the current month's petition later. Defending the protected
+                // settlement is permitted and is not treated as resumed campaigning.
                 return;
             }
 
-            string motherId = HeroKey(mother);
-            string pregnancyKey = GetOrCreatePregnancyKey(motherId);
-
             int highestProcessedMonth;
-            if (_highestProcessedMonthByPregnancy.TryGetValue(
+            bool monthAlreadyProcessed = _highestProcessedMonthByPregnancy.TryGetValue(
                     pregnancyKey,
                     out highestProcessedMonth)
-                && highestProcessedMonth >= normalizedMonth)
+                && highestProcessedMonth >= normalizedMonth;
+            bool departureRequiresImmediatePetition =
+                protectedRestTransition.RequiresImmediatePetition
+                && normalizedMonth >= settings.FormalPetitionMonth;
+
+            if (monthAlreadyProcessed && !departureRequiresImmediatePetition)
             {
                 return;
             }
 
-            _highestProcessedMonthByPregnancy[pregnancyKey] = normalizedMonth;
+            if (!monthAlreadyProcessed)
+            {
+                _highestProcessedMonthByPregnancy[pregnancyKey] = normalizedMonth;
+            }
 
             WithdrawalAuthorityResult authority = WithdrawalAuthorityResolver.Resolve(
                 authorityContext,
@@ -115,7 +147,14 @@ namespace PregnantLordsExpanded.Campaign
                 return;
             }
 
-            string requestKey = pregnancyKey + "|month:" + normalizedMonth;
+            int departureSequence;
+            _departureSequenceByPregnancy.TryGetValue(
+                pregnancyKey,
+                out departureSequence);
+            string requestKey = departureRequiresImmediatePetition
+                ? pregnancyKey + "|departure:" + departureSequence
+                    + "|month:" + normalizedMonth
+                : pregnancyKey + "|month:" + normalizedMonth;
             if (!authority.HasAuthority)
             {
                 _decisionByRequest[requestKey] = (int)WithdrawalDecision.NoDecision;
@@ -234,6 +273,9 @@ namespace PregnantLordsExpanded.Campaign
             _highestProcessedMonthByPregnancy.Remove(pregnancyKey);
             _lastResponsibleHeroByPregnancy.Remove(pregnancyKey);
             _lastResponsibilityByPregnancy.Remove(pregnancyKey);
+            _protectedRestStateByPregnancy.Remove(pregnancyKey);
+            _protectedSettlementByPregnancy.Remove(pregnancyKey);
+            _departureSequenceByPregnancy.Remove(pregnancyKey);
             RemoveKeysWithPrefix(_decisionByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(_authorityByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(
@@ -268,6 +310,156 @@ namespace PregnantLordsExpanded.Campaign
                 IsMilitaryEmergency = party != null
                     && party.BesiegedSettlement != null
             };
+        }
+
+        private ProtectedRestTransitionResult ObserveProtectedRestTransition(
+            Hero mother,
+            int normalizedMonth,
+            string pregnancyKey,
+            WithdrawalAuthorityContext authorityContext)
+        {
+            int previousStateValue;
+            _protectedRestStateByPregnancy.TryGetValue(
+                pregnancyKey,
+                out previousStateValue);
+
+            string protectedSettlementId;
+            _protectedSettlementByPregnancy.TryGetValue(
+                pregnancyKey,
+                out protectedSettlementId);
+
+            string observedSettlementId = CurrentSettlementId(mother);
+            MobileParty party = mother.PartyBelongedTo;
+            bool isDefendingProtectedSettlement = party != null
+                && party.BesiegedSettlement != null
+                && !string.IsNullOrWhiteSpace(observedSettlementId);
+
+            ProtectedRestState observedState = authorityContext.IsPrisoner
+                ? ProtectedRestState.Prisoner
+                : authorityContext.IsResting
+                    ? ProtectedRestState.ProtectedRest
+                    : authorityContext.IsCampaigning
+                        ? ProtectedRestState.Campaigning
+                        : ProtectedRestState.Unavailable;
+
+            ProtectedRestTransitionResult result =
+                ProtectedRestTransitionCalculator.Calculate(
+                    new ProtectedRestTransitionInput
+                    {
+                        PreviousState = (ProtectedRestState)previousStateValue,
+                        ObservedState = observedState,
+                        ProtectedSettlementId = protectedSettlementId,
+                        ObservedSettlementId = observedSettlementId,
+                        IsDefendingProtectedSettlement = isDefendingProtectedSettlement
+                    });
+
+            _protectedRestStateByPregnancy[pregnancyKey] = (int)result.NextState;
+            if (string.IsNullOrWhiteSpace(result.ProtectedSettlementId))
+            {
+                _protectedSettlementByPregnancy.Remove(pregnancyKey);
+            }
+            else
+            {
+                _protectedSettlementByPregnancy[pregnancyKey] =
+                    result.ProtectedSettlementId;
+            }
+
+            if (result.Transition == ProtectedRestTransitionKind.None)
+            {
+                return result;
+            }
+
+            if (result.Transition
+                == ProtectedRestTransitionKind.PresumedVoluntaryDeparture)
+            {
+                int sequence;
+                _departureSequenceByPregnancy.TryGetValue(pregnancyKey, out sequence);
+                sequence++;
+                _departureSequenceByPregnancy[pregnancyKey] = sequence;
+                _lastResponsibilityByPregnancy[pregnancyKey] =
+                    (int)WithdrawalResponsibility.VoluntaryRefusal;
+                _lastResponsibleHeroByPregnancy[pregnancyKey] = HeroKey(mother);
+            }
+            else if (result.Responsibility
+                == WithdrawalResponsibility.ForcedCircumstances)
+            {
+                _lastResponsibilityByPregnancy[pregnancyKey] =
+                    (int)WithdrawalResponsibility.ForcedCircumstances;
+                _lastResponsibleHeroByPregnancy.Remove(pregnancyKey);
+            }
+
+            LogProtectedRestTransition(
+                mother,
+                normalizedMonth,
+                protectedSettlementId,
+                observedSettlementId,
+                result);
+            return result;
+        }
+
+        private static void LogProtectedRestTransition(
+            Hero mother,
+            int normalizedMonth,
+            string previousSettlementId,
+            string observedSettlementId,
+            ProtectedRestTransitionResult result)
+        {
+            string previousSettlement = string.IsNullOrWhiteSpace(previousSettlementId)
+                ? "<unknown settlement>"
+                : previousSettlementId;
+            string currentSettlement = string.IsNullOrWhiteSpace(observedSettlementId)
+                ? "<unknown settlement>"
+                : observedSettlementId;
+
+            switch (result.Transition)
+            {
+                case ProtectedRestTransitionKind.ProtectedRestEstablished:
+                    DiagnosticLog.Info(
+                        mother.Name + " established protected pregnancy rest at "
+                        + currentSettlement + " during normalized month "
+                        + normalizedMonth + "; no withdrawal petition is required.");
+                    break;
+                case ProtectedRestTransitionKind.ReturnedToProtectedRest:
+                    DiagnosticLog.Info(
+                        mother.Name + " returned to protected pregnancy rest at "
+                        + currentSettlement + " during normalized month "
+                        + normalizedMonth + ".");
+                    break;
+                case ProtectedRestTransitionKind.DefensiveMobilization:
+                    DiagnosticLog.Info(
+                        mother.Name + " mobilized to defend protected settlement "
+                        + previousSettlement + " during normalized month "
+                        + normalizedMonth
+                        + "; this is lawful local defense, not voluntary campaigning,"
+                        + " and no blame is assigned.");
+                    break;
+                case ProtectedRestTransitionKind.PresumedVoluntaryDeparture:
+                    DiagnosticLog.Info(
+                        mother.Name + " left protected pregnancy rest at "
+                        + previousSettlement + " and resumed campaigning during normalized month "
+                        + normalizedMonth + "; provisional responsibility="
+                        + WithdrawalResponsibility.VoluntaryRefusal
+                        + ", responsible hero=" + HeroKey(mother)
+                        + ". No relationship change was applied.");
+                    break;
+                case ProtectedRestTransitionKind.ForcedRemoval:
+                    DiagnosticLog.Info(
+                        mother.Name + " was removed from protected pregnancy rest at "
+                        + previousSettlement + " into captivity during normalized month "
+                        + normalizedMonth + "; responsibility="
+                        + WithdrawalResponsibility.ForcedCircumstances
+                        + ", with no voluntary blame assigned.");
+                    break;
+                case ProtectedRestTransitionKind.UnresolvedDeparture:
+                    DiagnosticLog.Info(
+                        mother.Name + " left protected pregnancy rest at "
+                        + previousSettlement + " during normalized month "
+                        + normalizedMonth
+                        + ", but no campaigning or captivity state was available;"
+                        + " responsibility=" + WithdrawalResponsibility.ForcedCircumstances
+                        + " pending better evidence, with no voluntary blame assigned.");
+                    break;
+            }
         }
 
         private static WithdrawalAuthorityContext CreateAuthorityContext(Hero mother)
@@ -389,6 +581,12 @@ namespace PregnantLordsExpanded.Campaign
                 ?? new Dictionary<string, string>();
             _lastResponsibilityByPregnancy = _lastResponsibilityByPregnancy
                 ?? new Dictionary<string, int>();
+            _protectedRestStateByPregnancy = _protectedRestStateByPregnancy
+                ?? new Dictionary<string, int>();
+            _protectedSettlementByPregnancy = _protectedSettlementByPregnancy
+                ?? new Dictionary<string, string>();
+            _departureSequenceByPregnancy = _departureSequenceByPregnancy
+                ?? new Dictionary<string, int>();
         }
 
         private static void RemoveKeysWithPrefix<T>(
@@ -413,6 +611,19 @@ namespace PregnantLordsExpanded.Campaign
         private static string HeroKeyOrEmpty(Hero hero)
         {
             return hero != null ? HeroKey(hero) : string.Empty;
+        }
+
+        private static string CurrentSettlementId(Hero mother)
+        {
+            if (mother.CurrentSettlement != null)
+            {
+                return mother.CurrentSettlement.StringId;
+            }
+
+            MobileParty party = mother.PartyBelongedTo;
+            return party != null && party.CurrentSettlement != null
+                ? party.CurrentSettlement.StringId
+                : string.Empty;
         }
 
         private static string HeroKey(Hero hero)

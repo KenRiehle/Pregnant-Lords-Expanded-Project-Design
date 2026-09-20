@@ -9,7 +9,7 @@ using TaleWorlds.Library;
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Pregnancy observation and Milestone 2B withdrawal diagnostics. It deliberately
+    /// Pregnancy observation and Milestone 2B/2C withdrawal diagnostics. It deliberately
     /// performs no withdrawal, teleportation, relationship, party, combat, dialogue,
     /// fertility, or birth changes.
     /// </summary>
@@ -41,7 +41,7 @@ namespace PregnantLordsExpanded.Campaign
             _lastObservedState.Clear();
             InformationManager.DisplayMessage(
                 new InformationMessage(
-                    "Pregnant Lords Expanded: Milestone 2B loaded - withdrawal diagnostics are active."));
+                    "Pregnant Lords Expanded: Milestone 2C loaded - withdrawal and protected-rest diagnostics are active."));
 
             foreach (Hero hero in Hero.AllAliveHeroes)
             {
@@ -119,8 +119,20 @@ namespace PregnantLordsExpanded.Campaign
 
             int observedState = result.HasKnownProgress ? result.ApproximateMonth : 0;
             int previousState;
-            if (_lastObservedState.TryGetValue(heroId, out previousState)
-                && previousState == observedState)
+            bool observationUnchanged = _lastObservedState.TryGetValue(
+                    heroId,
+                    out previousState)
+                && previousState == observedState;
+
+            // Protected-rest transitions can occur within the same normalized month,
+            // so withdrawal diagnostics must observe known pregnancies every day.
+            // Its persisted ledgers suppress duplicate warnings and petitions.
+            if (result.HasKnownProgress)
+            {
+                _withdrawalDiagnostics.Observe(hero, result.ApproximateMonth);
+            }
+
+            if (observationUnchanged)
             {
                 return;
             }
@@ -131,8 +143,6 @@ namespace PregnantLordsExpanded.Campaign
                 DiagnosticLog.Info(
                     hero.Name + " pregnancy observed at normalized month "
                     + result.ApproximateMonth + " via " + result.DataSource + ".");
-
-                _withdrawalDiagnostics.Observe(hero, result.ApproximateMonth);
             }
             else
             {

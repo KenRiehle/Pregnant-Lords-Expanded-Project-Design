@@ -32,6 +32,36 @@ Responsibility follows the final decision:
 The system must not assign `CommanderOverride` merely because a hero is present in an army. It
 must establish that she requested withdrawal and that the correct authority refused it.
 
+## Protected Rest and Later Departure
+
+Beginning at the warning month, a pregnant hero who is not campaigning or imprisoned and resides
+in a settlement is recorded as being in protected pregnancy rest. This is an observational state;
+Milestone 2C does not lock her inside the settlement or move her party.
+
+If she later leaves that protection and resumes ordinary campaigning, the departure is
+provisionally recorded as `VoluntaryRefusal` with the mother as the responsible hero. At month 4
+or later, that transition causes an immediate withdrawal petition even if a normal petition was
+already processed earlier in the same normalized month. This exception is necessary because
+returning to the field after reaching safety is a new decision, not a duplicate daily tick.
+
+Responsibility may then change prospectively:
+
+- If the responsible commander orders her to remain, the command decision is recorded as
+  `CommanderOverride`.
+- If withdrawal is approved, the later active milestone must carry out or schedule the return to
+  protection.
+- If she is her own authority and continues, responsibility remains `VoluntaryRefusal`.
+- If she is captured or disappears from protection without a trustworthy campaigning state, the
+  diagnostic records `ForcedCircumstances` and assigns no voluntary blame.
+
+A pregnant hero may fight in defense of the same settlement where she was resting. While that
+settlement remains under siege, local defensive mobilization preserves her protected status and
+does not create a withdrawal petition or blame. If she subsequently leaves the settlement and
+continues campaigning after the defense ends, that later transition is evaluated normally.
+
+On the first observation of an existing pregnancy, the system establishes a baseline rather than
+inventing a prior departure. This avoids false blame when adding Milestone 2C to an older save.
+
 ## Normalized Month Schedule
 
 All stages use the normalized 1–9 month produced by the Milestone 1 pregnancy-progress service.
@@ -255,6 +285,8 @@ responsibility:
 - Responsible hero for any later attributable pregnancy loss
 - Stored AI decision roll or resolved outcome for each processed petition
 - Whether the request state has ended
+- Last protected-rest state and protected settlement
+- A departure sequence so multiple genuine rest-to-field transitions in one month remain distinct
 
 The ledger must be synchronized through Bannerlord's campaign save system. On load, the same
 month must not generate the same warning or petition again.
@@ -298,9 +330,19 @@ Example diagnostic:
 - Log warnings, petitions, decisions, and cleanup.
 - Perform no party movement or relationship mutation.
 
-### Milestone 2C — Activated Decisions
+### Milestone 2C — Protected-Rest and Departure Diagnostics
 
-Only after 2B passes live tests:
+- Observe protected settlement rest daily without repeating stable-state logs.
+- Detect rest-to-field transitions even when the normalized month does not change.
+- Attribute an ordinary departure provisionally to the mother.
+- Preserve protected status during defense of the same besieged settlement.
+- Treat capture and unresolved forced removal separately from voluntary campaigning.
+- Permit an immediate month 4+ petition for each genuine departure event.
+- Perform no party movement, settlement lock, relationship mutation, or pregnancy-risk roll.
+
+### Milestone 2D — Activated Decisions
+
+Only after 2C passes live tests:
 
 - Add player decision prompts.
 - Allow AI decisions to authorize or refuse later withdrawal actions.
@@ -334,6 +376,13 @@ Milestone 2 diagnostics are complete only when all of the following are demonstr
 19. An independent non-clan-leader resolves to the configured clan, kingdom, or self authority.
 20. Family-reaction calculations use the configured values, skip self-relationships, deduplicate
     overlapping roles, and produce no mutation during the diagnostic phase.
+21. Protected rest is established once and does not generate daily log spam.
+22. Leaving protected rest for ordinary campaigning records provisional `VoluntaryRefusal`.
+23. A month 4+ rest-to-field transition creates an immediate petition even if that month had an
+    earlier petition before the hero rested.
+24. Defense of the protected settlement creates no voluntary blame or withdrawal petition.
+25. Continued settlement defense does not repeat its transition log after save/load.
+26. Capture or an unresolved removal from protected rest creates no voluntary blame.
 
 ## Explicitly Deferred Features
 

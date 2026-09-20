@@ -51,6 +51,27 @@ namespace PregnantLordsExpanded.Withdrawal
         MothersAdultSibling = 3
     }
 
+    public enum ProtectedRestState
+    {
+        Unknown = 0,
+        ProtectedRest = 1,
+        ProtectedDefense = 2,
+        Campaigning = 3,
+        Prisoner = 4,
+        Unavailable = 5
+    }
+
+    public enum ProtectedRestTransitionKind
+    {
+        None = 0,
+        ProtectedRestEstablished = 1,
+        ReturnedToProtectedRest = 2,
+        DefensiveMobilization = 3,
+        PresumedVoluntaryDeparture = 4,
+        ForcedRemoval = 5,
+        UnresolvedDeparture = 6
+    }
+
     public sealed class WithdrawalMonthResult
     {
         public WithdrawalMonthResult(int normalizedMonth, WithdrawalMonthStage stage)
@@ -185,5 +206,44 @@ namespace PregnantLordsExpanded.Withdrawal
         public int ApprovalScore { get; }
 
         public string Explanation { get; }
+    }
+
+    public sealed class ProtectedRestTransitionInput
+    {
+        public ProtectedRestState PreviousState { get; set; }
+
+        public ProtectedRestState ObservedState { get; set; }
+
+        public string ProtectedSettlementId { get; set; }
+
+        public string ObservedSettlementId { get; set; }
+
+        public bool IsDefendingProtectedSettlement { get; set; }
+    }
+
+    public sealed class ProtectedRestTransitionResult
+    {
+        public ProtectedRestTransitionResult(
+            ProtectedRestTransitionKind transition,
+            ProtectedRestState nextState,
+            string protectedSettlementId,
+            WithdrawalResponsibility responsibility)
+        {
+            Transition = transition;
+            NextState = nextState;
+            ProtectedSettlementId = protectedSettlementId ?? string.Empty;
+            Responsibility = responsibility;
+        }
+
+        public ProtectedRestTransitionKind Transition { get; }
+
+        public ProtectedRestState NextState { get; }
+
+        public string ProtectedSettlementId { get; }
+
+        public WithdrawalResponsibility Responsibility { get; }
+
+        public bool RequiresImmediatePetition =>
+            Transition == ProtectedRestTransitionKind.PresumedVoluntaryDeparture;
     }
 }

@@ -16,11 +16,13 @@ subsequently revalidated on Bannerlord 1.5.3.122374. The source tree implements:
 - Optional provider and observation hooks for later DramaLord and AOC/FWB adapters
 - One on-screen confirmation after a campaign finishes loading
 - Birth and non-birth pregnancy-ending diagnostics
+- Withdrawal authority, AI decision, and provisional responsibility diagnostics
+- Protected settlement-rest and voluntary-departure diagnostics
 - No withdrawal, teleportation, party changes, combat risks, fertility changes, or birth replacement
 
-Milestone 2 is currently in specification and begins with diagnostic-only withdrawal requests,
-authority resolution, and responsibility tracking. Gameplay effects are added only after those
-decisions pass automated and live campaign tests.
+Milestone 2A and 2B calculations and campaign diagnostics have passed automated and live tests.
+Milestone 2C adds diagnostic-only protected-rest and departure provenance tracking. Gameplay
+effects are added only after those transitions pass automated and live campaign tests.
 
 Supporting specifications:
 
@@ -85,6 +87,13 @@ inability to depart safely is recorded separately as `ForcedCircumstances`.
 Outside an army, the default political authority for an independent noble who is not her clan
 leader is her clan leader. A later optional MCM setting may instead use the kingdom ruler or allow
 independent self-authorization. Actual army or party command always takes priority.
+
+Beginning at the warning month, settlement rest is tracked as protected status. If the hero later
+leaves that protection to campaign, the departure is initially attributed to her as a voluntary
+choice. A later commander's refusal can become the prospective responsibility for keeping her in
+the field. Fighting in defense of the same settlement where she was resting is permitted and does
+not count as a voluntary return to campaigning. Capture or another unresolved forced removal does
+not automatically blame her.
 
 If a later child loss is causally attributed to a refusal or override, family reactions target the
 responsible hero. Proposed configurable defaults are −50 from the pregnant mother (when someone
