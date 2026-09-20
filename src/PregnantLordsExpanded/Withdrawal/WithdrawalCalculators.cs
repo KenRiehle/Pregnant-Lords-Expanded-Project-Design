@@ -99,4 +99,23 @@ namespace PregnantLordsExpanded.Withdrawal
             return targetCumulativePenalty - alreadyApplied;
         }
     }
+
+    /// <summary>
+    /// Calculates the relationship delta still owed for the current denial tier.
+    /// The already-applied value must come from the Milestone 2D relationship ledger,
+    /// not the older diagnostic liability ledger.
+    /// </summary>
+    public static class CommanderRelationPenaltyCalculator
+    {
+        public static int GetPendingPenalty(
+            int normalizedMonth,
+            int alreadyAppliedCumulativePenalty)
+        {
+            int targetCumulativePenalty =
+                CommanderLiabilityCalculator.GetDefaultCumulativePenalty(normalizedMonth);
+            return CommanderLiabilityCalculator.GetAdditionalPenalty(
+                alreadyAppliedCumulativePenalty,
+                targetCumulativePenalty);
+        }
+    }
 }

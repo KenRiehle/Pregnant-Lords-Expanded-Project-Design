@@ -3,20 +3,23 @@ using System.Collections.Generic;
 using PregnantLordsExpanded.Diagnostics;
 using PregnantLordsExpanded.Withdrawal;
 using TaleWorlds.CampaignSystem;
+using TaleWorlds.CampaignSystem.Actions;
 using TaleWorlds.CampaignSystem.CharacterDevelopment;
 using TaleWorlds.CampaignSystem.Party;
 
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Milestone 2B/2C campaign adapter. It records warnings, petitions, authority,
-    /// diagnostic AI decisions, provisional liability, and transitions into or out
-    /// of protected settlement rest. It never moves a hero or changes a relationship.
+    /// Milestone 2B-2D campaign adapter. It records warnings, petitions, authority,
+    /// AI decisions, responsibility, and transitions into or out of protected rest.
+    /// Milestone 2D applies an AI commander's cumulative denial penalty exactly once;
+    /// it still never moves a hero or performs a withdrawal action.
     /// </summary>
     internal sealed class WithdrawalDiagnosticsCoordinator
     {
         private const string SavePrefix = "PLE_M2B_";
         private const string ProtectedRestSavePrefix = "PLE_M2C_";
+        private const string RelationshipSavePrefix = "PLE_M2D_";
 
         private Dictionary<string, int> _pregnancySequenceByMother =
             new Dictionary<string, int>();
@@ -29,6 +32,8 @@ namespace PregnantLordsExpanded.Campaign
         private Dictionary<string, string> _authorityByRequest =
             new Dictionary<string, string>();
         private Dictionary<string, int> _liabilityByPregnancyAndAuthority =
+            new Dictionary<string, int>();
+        private Dictionary<string, int> _appliedRelationPenaltyByPregnancyAndAuthority =
             new Dictionary<string, int>();
         private Dictionary<string, string> _lastResponsibleHeroByPregnancy =
             new Dictionary<string, string>();
@@ -76,6 +81,9 @@ namespace PregnantLordsExpanded.Campaign
             dataStore.SyncData(
                 ProtectedRestSavePrefix + "DepartureSequenceByPregnancy",
                 ref _departureSequenceByPregnancy);
+            dataStore.SyncData(
+                RelationshipSavePrefix + "AppliedRelationPenaltyByPregnancyAndAuthority",
+                ref _appliedRelationPenaltyByPregnancyAndAuthority);
 
             EnsureCollections();
         }
@@ -205,6 +213,8 @@ namespace PregnantLordsExpanded.Campaign
 
             int targetLiability = 0;
             int additionalLiability = 0;
+            int relationshipChangeApplied = 0;
+            int appliedCumulativeRelationshipPenalty = 0;
             if (responsibility == WithdrawalResponsibility.CommanderOverride)
             {
                 string liabilityKey = pregnancyKey + "|authority:" + HeroKey(authorityHero);
@@ -223,6 +233,30 @@ namespace PregnantLordsExpanded.Campaign
                 {
                     _liabilityByPregnancyAndAuthority[liabilityKey] = targetLiability;
                 }
+
+                int alreadyAppliedRelationPenalty;
+                _appliedRelationPenaltyByPregnancyAndAuthority.TryGetValue(
+                    liabilityKey,
+                    out alreadyAppliedRelationPenalty);
+                int pendingRelationshipPenalty =
+                    CommanderRelationPenaltyCalculator.GetPendingPenalty(
+                        normalizedMonth,
+                        alreadyAppliedRelationPenalty);
+
+                appliedCumulativeRelationshipPenalty = alreadyAppliedRelationPenalty;
+                if (pendingRelationshipPenalty < 0
+                    && TryApplyCommanderRelationshipPenalty(
+                        mother,
+                        authorityHero,
+                        liabilityKey,
+                        pendingRelationshipPenalty,
+                        targetLiability))
+                {
+                    relationshipChangeApplied = pendingRelationshipPenalty;
+                    appliedCumulativeRelationshipPenalty = targetLiability;
+                    _appliedRelationPenaltyByPregnancyAndAuthority[liabilityKey] =
+                        targetLiability;
+                }
             }
 
             DiagnosticLog.Info(
@@ -232,6 +266,9 @@ namespace PregnantLordsExpanded.Campaign
                 + ", responsibility=" + responsibility
                 + ", target liability=" + targetLiability
                 + ", newly recorded liability=" + additionalLiability
+                + ", relationship change applied=" + relationshipChangeApplied
+                + ", applied cumulative relationship penalty="
+                + appliedCumulativeRelationshipPenalty
                 + "; " + decisionResult.Explanation + ".");
         }
 
@@ -281,6 +318,46 @@ namespace PregnantLordsExpanded.Campaign
             RemoveKeysWithPrefix(
                 _liabilityByPregnancyAndAuthority,
                 pregnancyKey + "|");
+            RemoveKeysWithPrefix(
+                _appliedRelationPenaltyByPregnancyAndAuthority,
+                pregnancyKey + "|");
+        }
+
+        private static bool TryApplyCommanderRelationshipPenalty(
+            Hero mother,
+            Hero authority,
+            string liabilityKey,
+            int relationshipChange,
+            int targetCumulativePenalty)
+        {
+            try
+            {
+                int before = mother.GetRelation(authority);
+                ChangeRelationAction.ApplyRelationChangeBetweenHeroes(
+                    mother,
+                    authority,
+                    relationshipChange,
+                    false);
+                int after = mother.GetRelation(authority);
+
+                DiagnosticLog.Info(
+                    mother.Name + " relationship consequence applied against "
+                    + authority.Name + " for a denied withdrawal petition: requested change="
+                    + relationshipChange + ", target cumulative penalty="
+                    + targetCumulativePenalty + ", effective relation before=" + before
+                    + ", effective relation after=" + after + ".");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                DiagnosticLog.WarnOnce(
+                    "m2d-relation:" + liabilityKey + ":" + targetCumulativePenalty,
+                    "Could not apply the commander relationship consequence for "
+                    + mother.Name + " and " + authority.Name
+                    + "; the campaign will continue without recording it as applied. "
+                    + exception.GetType().Name + ": " + exception.Message);
+                return false;
+            }
         }
 
         private static AiWithdrawalDecisionInput CreateDecisionInput(
@@ -576,6 +653,9 @@ namespace PregnantLordsExpanded.Campaign
             _authorityByRequest = _authorityByRequest
                 ?? new Dictionary<string, string>();
             _liabilityByPregnancyAndAuthority = _liabilityByPregnancyAndAuthority
+                ?? new Dictionary<string, int>();
+            _appliedRelationPenaltyByPregnancyAndAuthority =
+                _appliedRelationPenaltyByPregnancyAndAuthority
                 ?? new Dictionary<string, int>();
             _lastResponsibleHeroByPregnancy = _lastResponsibleHeroByPregnancy
                 ?? new Dictionary<string, string>();

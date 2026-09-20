@@ -18,11 +18,14 @@ subsequently revalidated on Bannerlord 1.5.3.122374. The source tree implements:
 - Birth and non-birth pregnancy-ending diagnostics
 - Withdrawal authority, AI decision, and provisional responsibility diagnostics
 - Protected settlement-rest and voluntary-departure diagnostics
+- One-time cumulative relationship penalties when an AI commander denies withdrawal
 - No withdrawal, teleportation, party changes, combat risks, fertility changes, or birth replacement
 
-Milestone 2A and 2B calculations and campaign diagnostics have passed automated and live tests.
-Milestone 2C adds diagnostic-only protected-rest and departure provenance tracking. Gameplay
-effects are added only after those transitions pass automated and live campaign tests.
+Milestones 2A through 2D-A have passed automated and live campaign tests on Bannerlord
+1.5.3.122374. Milestone 2D-A converts an AI commander's recorded denial liability into a native
+Bannerlord relationship change, applies only the difference between cumulative tiers, and
+persists its one-time ledger across save/load. Player decisions and physical withdrawal remain
+deferred.
 
 Supporting specifications:
 
@@ -83,6 +86,12 @@ If the pregnant hero belongs to an army, she petitions the actual army commander
 commander refuses, responsibility is recorded as `CommanderOverride`. A hero who is her own
 military authority may continue voluntarily, which is recorded as `VoluntaryRefusal`. A genuine
 inability to depart safely is recorded separately as `ForcedCircumstances`.
+
+An AI commander's denial applies the configured cumulative mother-to-commander relationship
+penalty exactly once per pregnancy and commander. Later denied months apply only the additional
+difference needed to reach that month's target. The relationship change uses Bannerlord's native
+effective-relation rules; mods that alter those rules may change which effective noble pair owns
+the opinion without becoming a dependency of Pregnant Lords Expanded.
 
 Outside an army, the default political authority for an independent noble who is not her clan
 leader is her clan leader. A later optional MCM setting may instead use the kingdom ruler or allow
@@ -394,9 +403,9 @@ Build this project in milestones and validate each stage in real Bannerlord game
 
 Recommended order:
 1. Pregnancy detection and normalized progress — complete
-2. Withdrawal warnings, petitions, authority, and responsibility diagnostics
-3. Activated commander and player decisions
-4. Relationship liability
+2. Withdrawal warnings, petitions, authority, and responsibility diagnostics — complete
+3. AI commander-denial relationship liability — complete and live-tested
+4. Activated withdrawal actions and player decisions
 5. Safe destination, native travel, and narrative handoff
 6. Party-leader transition and escort quest/simulation
 7. Postpartum recovery

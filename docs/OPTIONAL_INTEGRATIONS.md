@@ -40,6 +40,17 @@ Pregnant Lords Expanded then returns to the native provider without corrupting t
 Pregnancy-duration mods such as PregnancyModifier do not need a dedicated switch when they patch
 Bannerlord's active `PregnancyModel`. The native provider reads the resulting active duration.
 
+## Relationship-model compatibility
+
+Milestone 2D applies commander-denial consequences through Bannerlord's native
+`ChangeRelationAction`. This deliberately respects the currently active diplomacy model instead
+of writing a raw private relation value that vanilla Bannerlord might not use.
+
+In an unmodified game, Bannerlord may resolve some noble opinions through its effective-relation
+heroes, commonly clan leaders. A mod such as True Noble Opinion may change that resolution so the
+same native action remains an individual noble-to-noble opinion. Pregnant Lords Expanded has no
+hard dependency on True Noble Opinion and does not patch or replace its behavior.
+
 ## Implementation boundary
 
 Milestone 1 includes the provider registry and observation hook surface, but it does not yet ship

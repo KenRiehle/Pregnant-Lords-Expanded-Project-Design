@@ -41,6 +41,10 @@ namespace PregnantLordsExpanded.CalculationTests
             TestProtectedRestTransitions();
 
             Console.WriteLine("All Milestone 2C protected-rest transition tests passed.");
+
+            TestCommanderRelationPenalties();
+
+            Console.WriteLine("All Milestone 2D commander relationship penalty tests passed.");
             return 0;
         }
 
@@ -147,6 +151,30 @@ namespace PregnantLordsExpanded.CalculationTests
                 0,
                 CommanderLiabilityCalculator.GetAdditionalPenalty(-65, -55),
                 "liability never reverses automatically");
+        }
+
+        private static void TestCommanderRelationPenalties()
+        {
+            AssertEqual(
+                -35,
+                CommanderRelationPenaltyCalculator.GetPendingPenalty(5, 0),
+                "upgraded save applies the full current tier from a fresh relationship ledger");
+            AssertEqual(
+                -10,
+                CommanderRelationPenaltyCalculator.GetPendingPenalty(5, -25),
+                "month 5 applies only the difference after a month 4 relationship penalty");
+            AssertEqual(
+                0,
+                CommanderRelationPenaltyCalculator.GetPendingPenalty(5, -35),
+                "same denial tier cannot repeat its relationship penalty");
+            AssertEqual(
+                0,
+                CommanderRelationPenaltyCalculator.GetPendingPenalty(3, 0),
+                "warning month creates no relationship penalty");
+            AssertEqual(
+                0,
+                CommanderRelationPenaltyCalculator.GetPendingPenalty(10, 0),
+                "invalid month creates no relationship penalty");
         }
 
         private static void TestAuthorityResolution()

@@ -9,9 +9,9 @@ using TaleWorlds.Library;
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Pregnancy observation and Milestone 2B/2C withdrawal diagnostics. It deliberately
-    /// performs no withdrawal, teleportation, relationship, party, combat, dialogue,
-    /// fertility, or birth changes.
+    /// Pregnancy observation and Milestone 2 withdrawal behavior. Milestone 2D applies
+    /// one-time AI commander-denial relationship penalties, but deliberately performs no
+    /// withdrawal, teleportation, party, combat, dialogue, fertility, or birth changes.
     /// </summary>
     public sealed class PregnancyProgressBehavior : CampaignBehaviorBase
     {
@@ -41,7 +41,7 @@ namespace PregnantLordsExpanded.Campaign
             _lastObservedState.Clear();
             InformationManager.DisplayMessage(
                 new InformationMessage(
-                    "Pregnant Lords Expanded: Milestone 2C loaded - withdrawal and protected-rest diagnostics are active."));
+                    "Pregnant Lords Expanded: Milestone 2D loaded - commander relationship consequences are active."));
 
             foreach (Hero hero in Hero.AllAliveHeroes)
             {

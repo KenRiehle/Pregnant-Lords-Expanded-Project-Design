@@ -5,11 +5,12 @@
 - Current game target: **Mount & Blade II: Bannerlord 1.5.3 beta**
   (live-tested on build `1.5.3.122374`)
 - Milestone 1 is preserved at tag `v0.1.0-milestone1`.
-- Milestone 2 begins with a **diagnostic-only implementation**.
+- Milestones 2A through 2C began as and completed a **diagnostic-only implementation**.
+- Milestone 2D activates only the AI commander-denial relationship consequence.
 - This milestone decides when a withdrawal request is due, who has authority to answer it,
   what that answer means, and who is responsible for continued campaigning.
-- It does not yet remove a hero from a party, relocate her, change relationships, add pregnancy
-  loss risk, create an escort quest, or enforce postpartum recovery.
+- It does not yet remove a hero from a party, relocate her, add pregnancy loss risk, create an
+  escort quest, prompt a player authority, or enforce postpartum recovery.
 
 The diagnostic boundary is deliberate. Authority and responsibility must be proven in live
 campaigns before the mod changes campaign state.
@@ -206,10 +207,11 @@ authority or voluntary continuation when the mother is her own authority. This f
 provisional: Milestone 2B logs every component so live evidence can guide tuning before any
 decision changes gameplay.
 
-## Provisional Commander Liability
+## Active AI Commander Relationship Liability
 
-Milestone 2A calculates and logs liability but does not change relationships. These recommended
-defaults remain subject to live-test review and later MCM adjustment.
+Milestone 2A calculated and logged liability without changing relationships. Milestone 2D applies
+these defaults when an AI commander denies a withdrawal petition. They remain subject to live-test
+review and later MCM adjustment.
 
 | Latest refused month | Target cumulative mother-to-commander penalty |
 |---:|---:|
@@ -220,7 +222,7 @@ defaults remain subject to live-test review and later MCM adjustment.
 | 8 | −65 |
 | 9 | −75 |
 
-The eventual active implementation applies only the difference between tiers. A commander who
+The active implementation applies only the difference between tiers. A commander who
 already incurred a target liability of −25 at month 4 receives only the additional −10 needed to
 reach −35 at month 5.
 
@@ -231,6 +233,18 @@ commander's first denial uses the current pregnancy month's target severity.
 A healthy birth does not automatically erase accumulated resentment. Catastrophic outcomes such
 as child loss, maternal death, or deliberate execution belong to later consequence milestones and
 may increase relationships toward −100 or create Blood Debt.
+
+The relationship mutation uses Bannerlord's native `ChangeRelationAction` and suppresses the
+normal quick notification for AI-versus-AI events. Consequently, the result follows the active
+effective-relation model. Vanilla Bannerlord may resolve some opinions through clan leaders; an
+optional mod such as True Noble Opinion may instead retain an individual noble-to-noble result.
+Pregnant Lords Expanded does not require or patch either behavior.
+
+The previously saved diagnostic-liability ledger remains separate from the Milestone 2D ledger
+that records penalties actually applied. This is essential for upgrades: a denial recorded by an
+older build must not falsely suppress the first real relationship consequence. The first future
+denial applies the full current cumulative target, after which later tiers apply only their delta.
+The applied ledger is saved and prevents the same tier from being charged again after save/load.
 
 ## Attributable Child-Loss Family Reactions
 
@@ -282,6 +296,7 @@ responsibility:
 - Authority resolved for each decision
 - Decision outcome and responsibility classification
 - Target liability recorded for each responsible commander
+- Cumulative commander relationship penalty actually applied
 - Responsible hero for any later attributable pregnancy loss
 - Stored AI decision roll or resolved outcome for each processed petition
 - Whether the request state has ended
@@ -297,13 +312,14 @@ petition flags.
 
 ## Notification and Logging Rules
 
-Milestone 2A favors diagnostics over player-facing interruptions.
+Milestone 2 favors diagnostics over player-facing interruptions.
 
 - AI-versus-AI decisions are logged and do not produce repeated global notifications.
 - Events involving the player may display one concise message.
 - Repeated daily logs for an unchanged state are prohibited.
 - Every decision log identifies the mother, normalized month, resolved authority, outcome,
-  responsibility type, and target liability.
+  responsibility type, target liability, relationship delta applied, and applied cumulative
+  relationship penalty.
 
 Example diagnostic:
 
@@ -344,10 +360,37 @@ Example diagnostic:
 
 Only after 2C passes live tests:
 
-- Add player decision prompts.
-- Allow AI decisions to authorize or refuse later withdrawal actions.
-- Apply configured relationship deltas exactly once.
-- Preserve the same diagnostic trail.
+- **2D-A:** Apply AI commander-denial relationship deltas exactly once through the native
+  relationship action while preserving the diagnostic trail.
+- **2D-B:** Add player decision prompts and explicit player agency.
+- **2D-C:** Allow approved decisions to authorize later physical withdrawal actions.
+
+The current implementation is 2D-A only. It does not move a party, force a mother home, or choose
+on behalf of the player.
+
+### Milestone 2D-A Validation Evidence
+
+Automated calculations and two live sessions passed on Bannerlord `1.5.3.122374`.
+
+The initial activation session produced 43 petitions: 27 approvals and 16 AI denials. All 16
+denials applied a relationship consequence, every observed before/after difference matched the
+requested delta, and no approval applied a relationship change. The session also demonstrated:
+
+- Upgrade safety: an older diagnostic liability did not suppress Hvana's first real Milestone 2D
+  consequence; the full current target of −35 was applied.
+- Tier progression: Vitharsura's commander received −25 at month 4, then −10 at month 5, then
+  −10 at month 6, reaching the cumulative −45 target without repeating an earlier tier.
+- Authority changes: when Brighan later served under a different commander, the new commander's
+  first denial received that month's full cumulative target rather than inheriting another
+  authority's ledger.
+- Pregnancy isolation: a later pregnancy created a new liability state only after the earlier
+  pregnancy had closed in birth.
+
+The reload session restored the applied-penalty ledger without replaying any of the 16 earlier
+changes. Only newly reached denial tiers applied: Popilia received the next −10 delta and Brighan
+received −20 to advance an existing commander from −45 to the month-8 target of −65. The resulting
+relations again matched the requested changes exactly. Both sessions saved and exited cleanly,
+and neither produced a Pregnant Lords Expanded exception.
 
 ## Acceptance Tests
 
@@ -370,8 +413,8 @@ Milestone 2 diagnostics are complete only when all of the following are demonstr
 14. Birth or another pregnancy-ending event closes the request state.
 15. A later pregnancy begins with a clean monthly ledger.
 16. The player is included without surrendering final player agency.
-17. No relationship, party, travel, combat-risk, fertility, or birth behavior changes during the
-    diagnostic phase.
+17. No party, travel, combat-risk, fertility, or birth behavior changes during the diagnostic
+    phase.
 18. No Pregnant Lords Expanded exceptions appear in campaign logs.
 19. An independent non-clan-leader resolves to the configured clan, kingdom, or self authority.
 20. Family-reaction calculations use the configured values, skip self-relationships, deduplicate
@@ -383,6 +426,13 @@ Milestone 2 diagnostics are complete only when all of the following are demonstr
 24. Defense of the protected settlement creates no voluntary blame or withdrawal petition.
 25. Continued settlement defense does not repeat its transition log after save/load.
 26. Capture or an unresolved removal from protected rest creates no voluntary blame.
+27. An AI commander's first denial applies the full current cumulative relationship target.
+28. A later denial by that commander applies only the difference to the next target tier.
+29. Save/load does not repeat a relationship penalty already applied.
+30. A diagnostic liability saved by an older build does not suppress the first active Milestone
+    2D relationship consequence.
+31. Approvals, self-authorized voluntary continuation, forced circumstances, and player-authority
+    requests apply no automatic commander relationship penalty.
 
 ## Explicitly Deferred Features
 
