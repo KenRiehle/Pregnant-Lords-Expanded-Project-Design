@@ -9,10 +9,11 @@ using TaleWorlds.Library;
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Pregnancy observation and Milestone 2 withdrawal behavior. Milestone 2D-C applies
-    /// the revised minor commander-denial consequence, asks the player to resolve
-    /// player-controlled petitions, and provides tested battle-risk calculations for a
-    /// later campaign hook. It performs no travel, party changes, or pregnancy-loss rolls.
+    /// Pregnancy observation and Milestone 2 withdrawal behavior. Milestone 2D-D applies
+    /// one routine commander-denial consequence per separately denied normalized month,
+    /// asks the player to resolve player-controlled petitions, and retains the tested
+    /// battle-risk calculations for a later campaign hook. It performs no travel, party
+    /// changes, or pregnancy-loss rolls.
     /// </summary>
     public sealed class PregnancyProgressBehavior : CampaignBehaviorBase
     {
@@ -43,7 +44,7 @@ namespace PregnantLordsExpanded.Campaign
             _withdrawalDiagnostics.ResetSessionPrompts();
             InformationManager.DisplayMessage(
                 new InformationMessage(
-                    "Pregnant Lords Expanded: Milestone 2D-C loaded - revised withdrawal consequences are active."));
+                    "Pregnant Lords Expanded: Milestone 2D-D loaded - monthly denial resentment is active."));
 
             foreach (Hero hero in Hero.AllAliveHeroes)
             {

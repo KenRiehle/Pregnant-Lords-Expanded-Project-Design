@@ -107,3 +107,89 @@ namespace PregnantLordsExpanded.Withdrawal
         }
     }
 }
+
+
+namespace PregnantLordsExpanded.Withdrawal
+{
+    /// <summary>
+    /// Milestone 2D-D routine resentment rule. Each normalized month from 4 through 9
+    /// may contribute exactly one -5 denial penalty. The campaign adapter persists the
+    /// returned ledger key so daily ticks, repeated petitions in the same month, and
+    /// save/load cannot apply the routine penalty twice.
+    /// </summary>
+    public static class MonthlyDenialResentmentCalculator
+    {
+        public const int FirstRoutineDenialMonth = 4;
+        public const int LastRoutineDenialMonth = 9;
+        public const int RoutineDenialPenalty = -5;
+
+        public static int GetPendingPenalty(
+            int normalizedMonth,
+            bool alreadyAppliedForNormalizedMonth)
+        {
+            if (alreadyAppliedForNormalizedMonth
+                || normalizedMonth < FirstRoutineDenialMonth
+                || normalizedMonth > LastRoutineDenialMonth)
+            {
+                return 0;
+            }
+
+            return RoutineDenialPenalty;
+        }
+
+        public static int GetMaximumRoutinePenalty()
+        {
+            return RoutineDenialPenalty
+                * (LastRoutineDenialMonth - FirstRoutineDenialMonth + 1);
+        }
+
+        public static string GetLedgerKey(string pregnancyKey, int normalizedMonth)
+        {
+            if (string.IsNullOrWhiteSpace(pregnancyKey))
+            {
+                throw new ArgumentException(
+                    "A pregnancy key is required.",
+                    nameof(pregnancyKey));
+            }
+
+            if (normalizedMonth < FirstRoutineDenialMonth
+                || normalizedMonth > LastRoutineDenialMonth)
+            {
+                throw new ArgumentOutOfRangeException(nameof(normalizedMonth));
+            }
+
+            return pregnancyKey + "|month:" + normalizedMonth;
+        }
+
+        public static bool TryGetNormalizedMonthFromRequestKey(
+            string requestKey,
+            out int normalizedMonth)
+        {
+            normalizedMonth = 0;
+            if (string.IsNullOrWhiteSpace(requestKey))
+            {
+                return false;
+            }
+
+            const string marker = "|month:";
+            int markerIndex = requestKey.LastIndexOf(marker, StringComparison.Ordinal);
+            if (markerIndex < 0)
+            {
+                return false;
+            }
+
+            int parsed;
+            if (!int.TryParse(
+                    requestKey.Substring(markerIndex + marker.Length),
+                    out parsed)
+                || parsed < FirstRoutineDenialMonth
+                || parsed > LastRoutineDenialMonth)
+            {
+                return false;
+            }
+
+            normalizedMonth = parsed;
+            return true;
+        }
+    }
+}
