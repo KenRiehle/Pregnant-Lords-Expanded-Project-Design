@@ -36,10 +36,10 @@ jobs:
           cp README.md package/
           cp docs/MILESTONE_2_WITHDRAWAL_REQUESTS.md package/docs/
           cd package
-          zip -r ../PregnantLordsExpanded-Milestone2D-E-ApprovedWithdrawalExecution-01.zip src tests docs README.md
+          zip -r ../PregnantLordsExpanded-Milestone2D-E-ApprovedWithdrawalExecution-02.zip src tests docs README.md
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PregnantLordsExpanded-Milestone2D-E-ApprovedWithdrawalExecution-01
-          path: PregnantLordsExpanded-Milestone2D-E-ApprovedWithdrawalExecution-01.zip
+          name: PregnantLordsExpanded-Milestone2D-E-ApprovedWithdrawalExecution-02
+          path: PregnantLordsExpanded-Milestone2D-E-ApprovedWithdrawalExecution-02.zip
           if-no-files-found: error
