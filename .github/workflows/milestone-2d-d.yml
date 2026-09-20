@@ -1,0 +1,39 @@
+name: Build Milestone 2D-D Increment
+
+on:
+  push:
+    branches:
+      - milestone-2d-d-monthly-resentment
+  workflow_dispatch:
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Run calculation tests
+        run: dotnet run --project tests/PregnantLordsExpanded.CalculationTests/PregnantLordsExpanded.CalculationTests.csproj
+
+      - name: Package incremental source ZIP
+        shell: bash
+        run: |
+          mkdir -p package/src/PregnantLordsExpanded/Campaign
+          mkdir -p package/src/PregnantLordsExpanded/Withdrawal
+          mkdir -p package/tests/PregnantLordsExpanded.CalculationTests
+          cp src/PregnantLordsExpanded/Campaign/WithdrawalDiagnosticsCoordinator.cs package/src/PregnantLordsExpanded/Campaign/
+          cp src/PregnantLordsExpanded/Campaign/PregnancyProgressBehavior.cs package/src/PregnantLordsExpanded/Campaign/
+          cp src/PregnantLordsExpanded/Withdrawal/WithdrawalCalculators.cs package/src/PregnantLordsExpanded/Withdrawal/
+          cp tests/PregnantLordsExpanded.CalculationTests/Program.cs package/tests/PregnantLordsExpanded.CalculationTests/
+          cd package
+          zip -r ../PregnantLordsExpanded-Milestone2D-D-MonthlyDenialResentment-01.zip src tests
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PregnantLordsExpanded-Milestone2D-D-MonthlyDenialResentment-01
+          path: PregnantLordsExpanded-Milestone2D-D-MonthlyDenialResentment-01.zip
+          if-no-files-found: error
