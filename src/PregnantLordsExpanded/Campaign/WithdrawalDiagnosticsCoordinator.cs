@@ -6,17 +6,19 @@ using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Actions;
 using TaleWorlds.CampaignSystem.CharacterDevelopment;
 using TaleWorlds.CampaignSystem.Party;
+using TaleWorlds.CampaignSystem.Settlements;
 using TaleWorlds.Library;
 
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Milestone 2B-2D-D campaign adapter. It records warnings, petitions, authority,
+    /// Milestone 2B-2D-E campaign adapter. It records warnings, petitions, authority,
     /// AI decisions, responsibility, and transitions into or out of protected rest.
-    /// Milestone 2D-D applies one routine -5 commander-denial relationship penalty per
-    /// separately denied normalized month from 4 through 9 and preserves the monthly
-    /// ledger across save/load. It still never moves a hero, performs travel, or
-    /// invokes the graduated battle-risk calculator.
+    /// Milestone 2D-E converts an approved withdrawal for an eligible NPC party member
+    /// into Bannerlord's native delayed travel to a safe friendly fortification. The
+    /// execution state and destination are persisted so save/load cannot start the same
+    /// trip twice. Player-character and party-leader movement remain deferred, and the
+    /// graduated battle-risk calculator is still not invoked by a campaign hook.
     /// </summary>
     internal sealed class WithdrawalDiagnosticsCoordinator
     {
@@ -25,6 +27,7 @@ namespace PregnantLordsExpanded.Campaign
         private const string RelationshipSavePrefix = "PLE_M2D_";
         private const string PlayerDecisionSavePrefix = "PLE_M2DB_";
         private const string MonthlyDenialSavePrefix = "PLE_M2DD_";
+        private const string ApprovedWithdrawalSavePrefix = "PLE_M2DE_";
         private const int CurrentMonthlyDenialLedgerVersion = 1;
 
         private Dictionary<string, int> _pregnancySequenceByMother =
@@ -55,6 +58,12 @@ namespace PregnantLordsExpanded.Campaign
             new Dictionary<string, int>();
         private Dictionary<string, int> _appliedRoutineDenialPenaltyByPregnancyAndMonth =
             new Dictionary<string, int>();
+        private Dictionary<string, int> _approvedWithdrawalStateByPregnancy =
+            new Dictionary<string, int>();
+        private Dictionary<string, string> _approvedWithdrawalDestinationByPregnancy =
+            new Dictionary<string, string>();
+        private Dictionary<string, string> _approvedWithdrawalRequestByPregnancy =
+            new Dictionary<string, string>();
         private int _monthlyDenialLedgerVersion;
 
         private readonly Queue<PlayerPromptRequest> _pendingPlayerPrompts =
@@ -110,6 +119,15 @@ namespace PregnantLordsExpanded.Campaign
             dataStore.SyncData(
                 MonthlyDenialSavePrefix + "LedgerVersion",
                 ref _monthlyDenialLedgerVersion);
+            dataStore.SyncData(
+                ApprovedWithdrawalSavePrefix + "StateByPregnancy",
+                ref _approvedWithdrawalStateByPregnancy);
+            dataStore.SyncData(
+                ApprovedWithdrawalSavePrefix + "DestinationByPregnancy",
+                ref _approvedWithdrawalDestinationByPregnancy);
+            dataStore.SyncData(
+                ApprovedWithdrawalSavePrefix + "RequestByPregnancy",
+                ref _approvedWithdrawalRequestByPregnancy);
 
             EnsureCollections();
             MigrateLegacyMonthlyDenialLedger();
@@ -141,6 +159,15 @@ namespace PregnantLordsExpanded.Campaign
             WithdrawalAuthorityContext authorityContext = CreateAuthorityContext(mother);
             string motherId = HeroKey(mother);
             string pregnancyKey = GetOrCreatePregnancyKey(motherId);
+
+            if (ObserveApprovedWithdrawalExecution(
+                mother,
+                normalizedMonth,
+                pregnancyKey))
+            {
+                return;
+            }
+
             ProtectedRestTransitionResult protectedRestTransition =
                 ObserveProtectedRestTransition(
                     mother,
@@ -395,7 +422,8 @@ namespace PregnantLordsExpanded.Campaign
                 + request.NormalizedMonth
                 + " and requests permission to withdraw from field service."
                 + penaltyText
-                + " This milestone records your order; safe travel is added next.";
+                + " If approved and she is an eligible non-leader NPC party member,"
+                + " Bannerlord's native delayed travel will begin toward friendly protection.";
 
             return new InquiryData(
                 "Withdrawal Petition",
@@ -453,7 +481,8 @@ namespace PregnantLordsExpanded.Campaign
 
             string text = "You are in normalized pregnancy month "
                 + request.NormalizedMonth + ". " + authorityText
-                + " This milestone records your decision; safe travel is added next.";
+                + " Your decision is recorded now. Automatic player-character travel"
+                + " remains deferred so the mod does not seize control of the player party.";
 
             return new InquiryData(
                 "Pregnancy Withdrawal",
@@ -547,6 +576,15 @@ namespace PregnantLordsExpanded.Campaign
                     out additionalLiability,
                     out relationshipChangeApplied,
                     out appliedCumulativeRelationshipPenalty);
+            }
+
+            if (resolution.WithdrawalAuthorized)
+            {
+                AuthorizeApprovedWithdrawalExecution(
+                    mother,
+                    normalizedMonth,
+                    pregnancyKey,
+                    requestKey);
             }
 
             DiagnosticLog.Info(
@@ -780,6 +818,9 @@ namespace PregnantLordsExpanded.Campaign
             _protectedRestStateByPregnancy.Remove(pregnancyKey);
             _protectedSettlementByPregnancy.Remove(pregnancyKey);
             _departureSequenceByPregnancy.Remove(pregnancyKey);
+            _approvedWithdrawalStateByPregnancy.Remove(pregnancyKey);
+            _approvedWithdrawalDestinationByPregnancy.Remove(pregnancyKey);
+            _approvedWithdrawalRequestByPregnancy.Remove(pregnancyKey);
             RemoveKeysWithPrefix(_decisionByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(_finalDecisionByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(_authorityByRequest, pregnancyKey + "|");
@@ -829,6 +870,263 @@ namespace PregnantLordsExpanded.Campaign
                     + exception.GetType().Name + ": " + exception.Message);
                 return false;
             }
+        }
+
+        private void AuthorizeApprovedWithdrawalExecution(
+            Hero mother,
+            int normalizedMonth,
+            string pregnancyKey,
+            string requestKey)
+        {
+            if (mother == Hero.MainHero)
+            {
+                DiagnosticLog.Info(
+                    mother.Name + " has an approved withdrawal at normalized month "
+                    + normalizedMonth
+                    + ", but automatic player-character movement is deferred.");
+                return;
+            }
+
+            MobileParty party = mother.PartyBelongedTo;
+            if (party != null && party.LeaderHero == mother)
+            {
+                DiagnosticLog.Info(
+                    mother.Name + " has an approved withdrawal at normalized month "
+                    + normalizedMonth
+                    + ", but she leads her party; party-leader handoff is deferred to"
+                    + " the leadership-transition milestone.");
+                return;
+            }
+
+            if (!_approvedWithdrawalStateByPregnancy.ContainsKey(pregnancyKey))
+            {
+                _approvedWithdrawalStateByPregnancy[pregnancyKey] =
+                    (int)ApprovedWithdrawalExecutionState.Pending;
+                _approvedWithdrawalRequestByPregnancy[pregnancyKey] = requestKey;
+            }
+
+            ObserveApprovedWithdrawalExecution(
+                mother,
+                normalizedMonth,
+                pregnancyKey);
+        }
+
+        private bool ObserveApprovedWithdrawalExecution(
+            Hero mother,
+            int normalizedMonth,
+            string pregnancyKey)
+        {
+            int stateValue;
+            if (!_approvedWithdrawalStateByPregnancy.TryGetValue(
+                    pregnancyKey,
+                    out stateValue))
+            {
+                return false;
+            }
+
+            ApprovedWithdrawalExecutionState previousState =
+                (ApprovedWithdrawalExecutionState)stateValue;
+            if (previousState == ApprovedWithdrawalExecutionState.Completed)
+            {
+                return false;
+            }
+
+            string destinationId;
+            _approvedWithdrawalDestinationByPregnancy.TryGetValue(
+                pregnancyKey,
+                out destinationId);
+            Settlement destination = !string.IsNullOrWhiteSpace(destinationId)
+                ? Settlement.Find(destinationId)
+                : null;
+
+            bool restingAtDestination = destination != null
+                && mother.PartyBelongedTo == null
+                && mother.CurrentSettlement == destination;
+            bool nativeTravelActive = mother.IsTraveling;
+
+            bool canBeginTravel = false;
+            if (!nativeTravelActive && !restingAtDestination)
+            {
+                if (!IsValidWithdrawalDestination(mother, destination))
+                {
+                    destination = FindApprovedWithdrawalDestination(mother);
+                    if (destination == null)
+                    {
+                        _approvedWithdrawalDestinationByPregnancy.Remove(pregnancyKey);
+                    }
+                    else
+                    {
+                        _approvedWithdrawalDestinationByPregnancy[pregnancyKey] =
+                            destination.StringId;
+                    }
+                }
+
+                canBeginTravel = CanBeginApprovedWithdrawalTravel(
+                    mother,
+                    destination);
+            }
+
+            ApprovedWithdrawalExecutionResult result =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    previousState,
+                    nativeTravelActive,
+                    restingAtDestination,
+                    canBeginTravel);
+
+            if (result.ShouldBeginTravel)
+            {
+                try
+                {
+                    TeleportHeroAction.ApplyDelayedTeleportToSettlement(
+                        mother,
+                        destination);
+                    _approvedWithdrawalStateByPregnancy[pregnancyKey] =
+                        (int)ApprovedWithdrawalExecutionState.Traveling;
+                    DiagnosticLog.Info(
+                        mother.Name + " began approved pregnancy withdrawal travel toward "
+                        + destination.Name + " during normalized month "
+                        + normalizedMonth + " using Bannerlord's native delayed travel.");
+                    return true;
+                }
+                catch (Exception exception)
+                {
+                    _approvedWithdrawalStateByPregnancy[pregnancyKey] =
+                        (int)ApprovedWithdrawalExecutionState.Pending;
+                    DiagnosticLog.WarnOnce(
+                        "m2de-travel:" + pregnancyKey + ":" + destination.StringId,
+                        "Could not start approved withdrawal travel for "
+                        + mother.Name + " toward " + destination.Name
+                        + "; the approval remains pending and will retry later. "
+                        + exception.GetType().Name + ": " + exception.Message);
+                    return true;
+                }
+            }
+
+            _approvedWithdrawalStateByPregnancy[pregnancyKey] =
+                (int)result.NextState;
+
+            if (result.NextState == ApprovedWithdrawalExecutionState.Completed)
+            {
+                _protectedRestStateByPregnancy[pregnancyKey] =
+                    (int)ProtectedRestState.ProtectedRest;
+                if (destination != null)
+                {
+                    _protectedSettlementByPregnancy[pregnancyKey] =
+                        destination.StringId;
+                }
+
+                _lastResponsibilityByPregnancy[pregnancyKey] =
+                    (int)WithdrawalResponsibility.WithdrawalApproved;
+                _lastResponsibleHeroByPregnancy.Remove(pregnancyKey);
+
+                DiagnosticLog.Info(
+                    mother.Name + " completed approved pregnancy withdrawal and"
+                    + " established protected rest at "
+                    + (destination != null
+                        ? destination.Name.ToString()
+                        : "<resolved destination>")
+                    + " during normalized month " + normalizedMonth + ".");
+                return true;
+            }
+
+            if (result.NextState == ApprovedWithdrawalExecutionState.Traveling)
+            {
+                return true;
+            }
+
+            if (result.NextState == ApprovedWithdrawalExecutionState.Pending)
+            {
+                DiagnosticLog.WarnOnce(
+                    "m2de-pending:" + pregnancyKey + ":" + normalizedMonth,
+                    mother.Name + " has an approved withdrawal, but no safe native"
+                    + " departure can begin yet. The approval remains pending.");
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool CanBeginApprovedWithdrawalTravel(
+            Hero mother,
+            Settlement destination)
+        {
+            if (mother == null
+                || destination == null
+                || mother == Hero.MainHero
+                || mother.IsPrisoner
+                || mother.IsTraveling
+                || !mother.CanMoveToSettlement())
+            {
+                return false;
+            }
+
+            MobileParty party = mother.PartyBelongedTo;
+            return party != null
+                && party.IsActive
+                && party.LeaderHero != mother
+                && party.MapEvent == null
+                && !party.IsCurrentlyEngagingParty
+                && party.BesiegedSettlement == null;
+        }
+
+        private static Settlement FindApprovedWithdrawalDestination(Hero mother)
+        {
+            if (mother == null)
+            {
+                return null;
+            }
+
+            Settlement home = mother.HomeSettlement;
+            if (IsValidWithdrawalDestination(mother, home))
+            {
+                return home;
+            }
+
+            MobileParty party = mother.PartyBelongedTo;
+            if (party == null)
+            {
+                return null;
+            }
+
+            Settlement nearest = null;
+            float nearestDistanceSquared = float.MaxValue;
+            foreach (Settlement settlement in Campaign.Current.Settlements)
+            {
+                if (!IsValidWithdrawalDestination(mother, settlement))
+                {
+                    continue;
+                }
+
+                float distanceSquared =
+                    settlement.Position2D.DistanceSquared(party.Position2D);
+                if (distanceSquared < nearestDistanceSquared)
+                {
+                    nearest = settlement;
+                    nearestDistanceSquared = distanceSquared;
+                }
+            }
+
+            return nearest;
+        }
+
+        private static bool IsValidWithdrawalDestination(
+            Hero mother,
+            Settlement settlement)
+        {
+            if (mother == null
+                || settlement == null
+                || !settlement.IsFortification
+                || settlement.IsUnderSiege
+                || settlement.MapFaction == null
+                || mother.MapFaction == null)
+            {
+                return false;
+            }
+
+            return settlement.MapFaction == mother.MapFaction
+                && !FactionManager.IsAtWarAgainstFaction(
+                    mother.MapFaction,
+                    settlement.MapFaction);
         }
 
         private static AiWithdrawalDecisionInput CreateDecisionInput(
@@ -1143,6 +1441,15 @@ namespace PregnantLordsExpanded.Campaign
             _appliedRoutineDenialPenaltyByPregnancyAndMonth =
                 _appliedRoutineDenialPenaltyByPregnancyAndMonth
                 ?? new Dictionary<string, int>();
+            _approvedWithdrawalStateByPregnancy =
+                _approvedWithdrawalStateByPregnancy
+                ?? new Dictionary<string, int>();
+            _approvedWithdrawalDestinationByPregnancy =
+                _approvedWithdrawalDestinationByPregnancy
+                ?? new Dictionary<string, string>();
+            _approvedWithdrawalRequestByPregnancy =
+                _approvedWithdrawalRequestByPregnancy
+                ?? new Dictionary<string, string>();
         }
 
         private static void RemoveKeysWithPrefix<T>(
