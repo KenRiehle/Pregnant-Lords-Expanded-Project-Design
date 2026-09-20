@@ -8,12 +8,15 @@
 - Milestones 2A through 2C began as and completed a **diagnostic-only implementation**.
 - Milestone 2D-A activates commander-denial relationship consequences.
 - Milestone 2D-B adds save-safe player decision prompts and has passed its first live branches.
-- Milestone 2D-C revises ordinary denial to a one-time minor consequence and adds pure,
-  automated graduated battle-risk calculations. No battle hook or loss roll is active yet.
-- This milestone decides when a withdrawal request is due, who has authority to answer it,
-  what that answer means, and who is responsible for continued campaigning.
-- It does not yet remove a hero from a party, relocate her, add pregnancy loss risk, create an
-  escort quest, or enforce postpartum recovery.
+- Milestone 2D-C adds pure, automated graduated battle-risk calculations. No battle hook or
+  pregnancy-loss roll is active yet.
+- Milestone 2D-D applies routine denial resentment once per separately denied normalized month
+  4–9 and has passed live save/load validation.
+- Milestone 2D-E begins native delayed withdrawal travel for eligible approved NPC party members.
+  Player-character and party-leader movement remain deferred.
+- This milestone still owns withdrawal authority, responsibility, and save-safe execution state.
+  It does not yet create escort quests, move the player automatically, transition pregnant party
+  leaders, activate pregnancy-loss rolls, or enforce postpartum recovery.
 
 The diagnostic boundary is deliberate. Authority and responsibility must be proven in live
 campaigns before the mod changes campaign state.
@@ -31,7 +34,7 @@ Responsibility follows the final decision:
 | `VoluntaryRefusal` | The pregnant hero elects to continue campaigning when the decision is hers. |
 | `CommanderOverride` | She requests withdrawal, but the person with military authority orders her to remain. |
 | `ForcedCircumstances` | Immediate conditions make safe withdrawal impossible; no one is automatically blamed. |
-| `WithdrawalApproved` | The responsible authority approves withdrawal. Later milestones perform the actual departure. |
+| `WithdrawalApproved` | The responsible authority approves withdrawal. In 2D-E, eligible NPC party members may begin native delayed travel. |
 
 The system must not assign `CommanderOverride` merely because a hero is present in an army. It
 must establish that she requested withdrawal and that the correct authority refused it.
@@ -213,13 +216,13 @@ decision changes gameplay.
 ## Active Commander Relationship Liability
 
 Milestone 2A calculated and logged liability without changing relationships. Milestone 2D applies
-a relationship consequence when a commander denies a withdrawal petition. Live testing showed
-that escalating the penalty merely because another month passed was too severe. Milestone 2D-C
-therefore uses a one-time minor target of −5 for an ordinary denial in months 4–9.
+native relationship consequences when a commander denies a withdrawal petition. Milestone 2D-D
+uses a routine −5 change for each separately denied normalized month from 4 through 9.
 
-Renewed petitions still occur each month and become narratively more urgent, but they do not add
-another routine penalty for the same commander and pregnancy. Stronger consequences require an
-actual later event, such as a significant wound or attributable pregnancy loss.
+Each normalized month can contribute at most one routine denial penalty for the pregnancy,
+regardless of daily observation, repeated same-month petition paths, commander changes, or
+save/reload. Six denied months therefore cap routine resentment at −30. Stronger consequences
+require a separate later event, such as a significant wound or attributable pregnancy loss.
 
 The liability record is keyed by pregnancy and responsible hero. If command changes, each
 commander retains responsibility for the decisions that commander personally made. A new
@@ -235,12 +238,10 @@ effective-relation model. Vanilla Bannerlord may resolve some opinions through c
 optional mod such as True Noble Opinion may instead retain an individual noble-to-noble result.
 Pregnant Lords Expanded does not require or patch either behavior.
 
-The previously saved diagnostic-liability ledger remains separate from the Milestone 2D ledger
-that records penalties actually applied. This is essential for upgrades: a denial recorded by an
-older diagnostic build must not falsely suppress the first real relationship consequence. The
-applied ledger is saved and prevents the same target from being charged again after save/load.
-If an older active build already applied more than −5, Milestone 2D-C never attempts to reverse
-or add to that historical relationship change.
+The previously saved diagnostic-liability ledger remains separate from the active relationship
+ledger. Milestone 2D-D adds a per-pregnancy/per-normalized-month ledger and migrates already
+recorded active 2D-C denial months as accounted without replaying relationship changes. The new
+ledger is saved and prevents a month from being charged again after save/load.
 
 ## Graduated Post-Battle Pregnancy Risk
 
@@ -316,6 +317,9 @@ responsibility:
 - Whether the request state has ended
 - Last protected-rest state and protected settlement
 - A departure sequence so multiple genuine rest-to-field transitions in one month remain distinct
+- Per-pregnancy/per-month routine-denial relationship ledger
+- Approved-withdrawal execution state: Pending, Traveling, or Completed
+- Selected approved-withdrawal destination and the request that authorized it
 
 The ledger must be synchronized through Bannerlord's campaign save system. On load, the same
 month must not generate the same warning or petition again.
@@ -379,12 +383,15 @@ Only after 2C passes live tests:
 - **2D-B:** Add player decision prompts and explicit player agency.
 - **2D-C:** Recalibrate ordinary denial consequences and add pure graduated battle-risk
   calculations with automated boundary tests.
-- **2D-D:** Allow approved decisions to authorize later physical withdrawal actions.
+- **2D-D:** Apply an additional −5 routine resentment for each separately denied normalized
+  month 4–9, with one charge maximum per pregnancy/month.
+- **2D-E:** Execute approved withdrawal for eligible NPC non-party-leaders using Bannerlord's
+  native delayed travel to a safe friendly fortification.
 
-The current implementation includes 2D-C. It presents explicit choices instead of choosing on
-behalf of the player, uses the revised one-time minor denial consequence, and exposes the tested
-risk calculation without invoking it in a campaign. It does not yet move a party, force a mother
-home, or end a pregnancy.
+The current implementation includes 2D-E. It preserves explicit player agency, monthly denial
+deduplication, and the inactive pure battle-risk calculator. Eligible approved NPC party members
+can now leave field service through native delayed travel. Automatic player-character movement,
+pregnant party-leader transitions, escort logic, and pregnancy-loss behavior remain deferred.
 
 Player decisions use these rules:
 
@@ -468,9 +475,10 @@ Milestone 2 diagnostics are complete only when all of the following are demonstr
 24. Defense of the protected settlement creates no voluntary blame or withdrawal petition.
 25. Continued settlement defense does not repeat its transition log after save/load.
 26. Capture or an unresolved removal from protected rest creates no voluntary blame.
-27. An AI commander's first denial applies the one-time −5 ordinary-denial target.
-28. A later routine denial by that commander in the same pregnancy applies no additional penalty.
-29. Save/load does not repeat a relationship penalty already applied.
+27. A denied normalized month from 4–9 applies one routine −5 relationship penalty.
+28. A separately denied later normalized month applies another −5, up to −30 across months 4–9.
+29. The same normalized month never applies a second routine penalty after repeated observation,
+    alternate petition paths, commander changes, or save/load.
 30. A diagnostic liability saved by an older build does not suppress the first active Milestone
     2D relationship consequence.
 31. Approvals, self-authorized voluntary continuation, and forced circumstances apply no
@@ -488,14 +496,21 @@ Milestone 2 diagnostics are complete only when all of the following are demonstr
     when battle health did not decline.
 39. Voluntary continuation preserves physical injury risk but assigns no commander relationship
     target.
+40. An approved eligible NPC non-party-leader begins Bannerlord native delayed travel exactly once.
+41. Save/load while native travel is active does not start a second trip.
+42. Arrival at the selected friendly fortification records protected rest and completes execution.
+43. A canceled/invalid native trip remains pending or can retry without duplicating execution.
+44. Player-character movement is not automated in 2D-E.
+45. Pregnant party-leader movement is not automated until leadership handoff is implemented.
 
 ## Explicitly Deferred Features
 
 The following are designed separately after withdrawal authority is proven:
 
 - Removing or replacing party leaders
-- Actual withdrawal and destination selection
-- Native Traveling state and narrative clan handoff
+- Automatic player-character withdrawal movement
+- Pregnant party-leader transition/replacement
+- Narrative clan handoff and escort presentation
 - Player escort quest and AI simulated escort
 - Chivalric Mercy and Maternal Safe Conduct for captives
 - Combat- and captivity-related pregnancy loss
