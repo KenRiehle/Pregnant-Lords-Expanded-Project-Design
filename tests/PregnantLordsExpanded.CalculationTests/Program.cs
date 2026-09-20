@@ -53,6 +53,10 @@ namespace PregnantLordsExpanded.CalculationTests
             TestPregnancyBattleRisk();
 
             Console.WriteLine("All Milestone 2D-C graduated consequence tests passed.");
+
+            TestMonthlyDenialResentment();
+
+            Console.WriteLine("All Milestone 2D-D monthly denial resentment tests passed.");
             return 0;
         }
 
@@ -183,6 +187,90 @@ namespace PregnantLordsExpanded.CalculationTests
                 0,
                 CommanderRelationPenaltyCalculator.GetPendingPenalty(10, 0),
                 "invalid month creates no relationship penalty");
+        }
+
+        private static void TestMonthlyDenialResentment()
+        {
+            AssertEqual(
+                0,
+                MonthlyDenialResentmentCalculator.GetPendingPenalty(3, false),
+                "month three has no routine denial resentment");
+            AssertEqual(
+                -5,
+                MonthlyDenialResentmentCalculator.GetPendingPenalty(4, false),
+                "month four fresh denial applies minus five");
+            AssertEqual(
+                0,
+                MonthlyDenialResentmentCalculator.GetPendingPenalty(4, true),
+                "same month cannot repeat after reload or another evaluation");
+            AssertEqual(
+                -5,
+                MonthlyDenialResentmentCalculator.GetPendingPenalty(5, false),
+                "separate month five denial applies another minus five");
+            AssertEqual(
+                -5,
+                MonthlyDenialResentmentCalculator.GetPendingPenalty(9, false),
+                "month nine remains eligible");
+            AssertEqual(
+                0,
+                MonthlyDenialResentmentCalculator.GetPendingPenalty(10, false),
+                "month ten is outside routine resentment");
+            AssertEqual(
+                -30,
+                MonthlyDenialResentmentCalculator.GetMaximumRoutinePenalty(),
+                "six denied months cap routine resentment at minus thirty");
+
+            var appliedKeys = new HashSet<string>();
+            int total = 0;
+            for (int month = 4; month <= 9; month++)
+            {
+                string key = MonthlyDenialResentmentCalculator.GetLedgerKey(
+                    "mother#1",
+                    month);
+                bool alreadyApplied = appliedKeys.Contains(key);
+                int first = MonthlyDenialResentmentCalculator.GetPendingPenalty(
+                    month,
+                    alreadyApplied);
+                total += first;
+                appliedKeys.Add(key);
+
+                AssertEqual(
+                    0,
+                    MonthlyDenialResentmentCalculator.GetPendingPenalty(
+                        month,
+                        appliedKeys.Contains(key)),
+                    "same normalized month remains idempotent " + month);
+            }
+
+            AssertEqual(-30, total, "months four through nine total minus thirty");
+
+            int parsedMonth;
+            AssertEqual(
+                true,
+                MonthlyDenialResentmentCalculator.TryGetNormalizedMonthFromRequestKey(
+                    "mother#1|month:4",
+                    out parsedMonth),
+                "ordinary request month parses");
+            AssertEqual(4, parsedMonth, "ordinary request parsed month");
+            AssertEqual(
+                true,
+                MonthlyDenialResentmentCalculator.TryGetNormalizedMonthFromRequestKey(
+                    "mother#1|departure:2|month:6",
+                    out parsedMonth),
+                "departure request month parses");
+            AssertEqual(6, parsedMonth, "departure request parsed month");
+            AssertEqual(
+                false,
+                MonthlyDenialResentmentCalculator.TryGetNormalizedMonthFromRequestKey(
+                    "mother#1|month:3",
+                    out parsedMonth),
+                "warning month is not a routine denial migration month");
+            AssertEqual(
+                false,
+                MonthlyDenialResentmentCalculator.TryGetNormalizedMonthFromRequestKey(
+                    "mother#1|month:not-a-number",
+                    out parsedMonth),
+                "invalid request month does not parse");
         }
 
         private static void TestPregnancyBattleRisk()
