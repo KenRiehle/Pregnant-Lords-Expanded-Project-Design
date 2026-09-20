@@ -1065,7 +1065,6 @@ namespace PregnantLordsExpanded.Campaign
                 && party.IsActive
                 && party.LeaderHero != mother
                 && party.MapEvent == null
-                && !party.IsCurrentlyEngagingParty
                 && party.BesiegedSettlement == null;
         }
 
@@ -1090,7 +1089,7 @@ namespace PregnantLordsExpanded.Campaign
 
             Settlement nearest = null;
             float nearestDistanceSquared = float.MaxValue;
-            foreach (Settlement settlement in Campaign.Current.Settlements)
+            foreach (Settlement settlement in TaleWorlds.CampaignSystem.Campaign.Current.Settlements)
             {
                 if (!IsValidWithdrawalDestination(mother, settlement))
                 {
@@ -1098,7 +1097,7 @@ namespace PregnantLordsExpanded.Campaign
                 }
 
                 float distanceSquared =
-                    settlement.Position2D.DistanceSquared(party.Position2D);
+                    settlement.GetPosition2D.DistanceSquared(party.GetPosition2D);
                 if (distanceSquared < nearestDistanceSquared)
                 {
                     nearest = settlement;
