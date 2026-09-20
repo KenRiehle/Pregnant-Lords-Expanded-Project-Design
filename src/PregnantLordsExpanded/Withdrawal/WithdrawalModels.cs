@@ -89,6 +89,14 @@ namespace PregnantLordsExpanded.Withdrawal
         Critical = 3
     }
 
+    public enum ApprovedWithdrawalExecutionState
+    {
+        None = 0,
+        Pending = 1,
+        Traveling = 2,
+        Completed = 3
+    }
+
     public sealed class WithdrawalMonthResult
     {
         public WithdrawalMonthResult(int normalizedMonth, WithdrawalMonthStage stage)
@@ -248,6 +256,21 @@ namespace PregnantLordsExpanded.Withdrawal
         public bool ApplyCommanderRelationPenalty { get; }
 
         public bool WithdrawalAuthorized => FinalDecision == WithdrawalDecision.Approve;
+    }
+
+    public sealed class ApprovedWithdrawalExecutionResult
+    {
+        public ApprovedWithdrawalExecutionResult(
+            ApprovedWithdrawalExecutionState nextState,
+            bool shouldBeginTravel)
+        {
+            NextState = nextState;
+            ShouldBeginTravel = shouldBeginTravel;
+        }
+
+        public ApprovedWithdrawalExecutionState NextState { get; }
+
+        public bool ShouldBeginTravel { get; }
     }
 
     public sealed class PregnancyBattleRiskInput
