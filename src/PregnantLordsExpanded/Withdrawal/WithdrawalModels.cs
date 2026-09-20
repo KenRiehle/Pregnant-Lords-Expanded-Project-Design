@@ -142,4 +142,48 @@ namespace PregnantLordsExpanded.Withdrawal
 
         public int RelationChange { get; }
     }
+
+    public sealed class AiWithdrawalDecisionInput
+    {
+        public int NormalizedMonth { get; set; }
+
+        public bool IsSelfAuthority { get; set; }
+
+        public int MercyLevel { get; set; }
+
+        public int HonorLevel { get; set; }
+
+        public int ValorLevel { get; set; }
+
+        public int CalculatingLevel { get; set; }
+
+        public int RelationWithMother { get; set; }
+
+        public bool HasReplacement { get; set; }
+
+        public bool HasNearbyFriendlyProtection { get; set; }
+
+        public bool HasHighDynasticRisk { get; set; }
+
+        public bool IsMilitaryEmergency { get; set; }
+    }
+
+    public sealed class AiWithdrawalDecisionResult
+    {
+        public AiWithdrawalDecisionResult(
+            WithdrawalDecision decision,
+            int approvalScore,
+            string explanation)
+        {
+            Decision = decision;
+            ApprovalScore = approvalScore;
+            Explanation = explanation ?? string.Empty;
+        }
+
+        public WithdrawalDecision Decision { get; }
+
+        public int ApprovalScore { get; }
+
+        public string Explanation { get; }
+    }
 }

@@ -26,7 +26,7 @@
 
   <Target Name="CheckBannerlordReferences" BeforeTargets="ResolveReferences">
     <Error Condition="!Exists('$(BannerlordReferenceDir)\TaleWorlds.CampaignSystem.dll')"
-           Text="Bannerlord 1.5.2 references were not found. Set BANNERLORD_DIR to the game folder or pass -p:BannerlordReferenceDir=&quot;path\to\reference\assemblies&quot;." />
+           Text="Bannerlord 1.5.3 references were not found. Set BANNERLORD_DIR to the game folder or pass -p:BannerlordReferenceDir=&quot;path\to\reference\assemblies&quot;." />
   </Target>
 
   <Target Name="CopyIntoModule" AfterTargets="Build">

@@ -3,19 +3,22 @@ using PregnantLordsExpanded.Diagnostics;
 using PregnantLordsExpanded.Integrations;
 using PregnantLordsExpanded.Pregnancy;
 using TaleWorlds.CampaignSystem;
+using TaleWorlds.CampaignSystem.Actions;
 using TaleWorlds.Library;
 
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Milestone 1 diagnostic behavior. It observes pregnancies and logs state/month
-    /// transitions. It deliberately performs no withdrawal, teleportation, party, combat,
-    /// dialogue, fertility, or birth changes.
+    /// Pregnancy observation and Milestone 2B withdrawal diagnostics. It deliberately
+    /// performs no withdrawal, teleportation, relationship, party, combat, dialogue,
+    /// fertility, or birth changes.
     /// </summary>
     public sealed class PregnancyProgressBehavior : CampaignBehaviorBase
     {
         private readonly Dictionary<string, int> _lastObservedState =
             new Dictionary<string, int>();
+        private readonly WithdrawalDiagnosticsCoordinator _withdrawalDiagnostics =
+            new WithdrawalDiagnosticsCoordinator();
 
         public override void RegisterEvents()
         {
@@ -23,12 +26,14 @@ namespace PregnantLordsExpanded.Campaign
             CampaignEvents.OnChildConceivedEvent.AddNonSerializedListener(this, OnChildConceived);
             CampaignEvents.OnGivenBirthEvent.AddNonSerializedListener(this, OnGivenBirth);
             CampaignEvents.DailyTickHeroEvent.AddNonSerializedListener(this, OnDailyTickHero);
+            CampaignEvents.HeroKilledEvent.AddNonSerializedListener(this, OnHeroKilled);
         }
 
         public override void SyncData(IDataStore dataStore)
         {
-            // Pregnancy progress is recomputed from active campaign data. No competing
-            // pregnancy timeline or cached month is written into the save.
+            // Pregnancy progress remains derived from Bannerlord. Only the withdrawal
+            // diagnostic event ledger is persisted to prevent duplicate requests.
+            _withdrawalDiagnostics.SyncData(dataStore);
         }
 
         private void OnGameLoadFinished()
@@ -36,7 +41,7 @@ namespace PregnantLordsExpanded.Campaign
             _lastObservedState.Clear();
             InformationManager.DisplayMessage(
                 new InformationMessage(
-                    "Pregnant Lords Expanded: Milestone 1 loaded - pregnancy observation is active."));
+                    "Pregnant Lords Expanded: Milestone 2B loaded - withdrawal diagnostics are active."));
 
             foreach (Hero hero in Hero.AllAliveHeroes)
             {
@@ -58,7 +63,23 @@ namespace PregnantLordsExpanded.Campaign
                 motherName + " pregnancy ended in birth: " + childCount
                 + " child(ren) reported, " + stillbornCount + " stillborn.");
 
+            _withdrawalDiagnostics.Close(
+                mother,
+                stillbornCount > 0
+                    ? "birth with stillborn child count reported; no causal blame assigned"
+                    : "birth");
+
             Forget(mother);
+        }
+
+        private void OnHeroKilled(
+            Hero victim,
+            Hero killer,
+            KillCharacterAction.KillCharacterActionDetail detail,
+            bool showNotification)
+        {
+            _withdrawalDiagnostics.Close(victim, "maternal death: " + detail);
+            Forget(victim);
         }
 
         private void OnDailyTickHero(Hero hero)
@@ -89,6 +110,7 @@ namespace PregnantLordsExpanded.Campaign
                         hero.Name + " pregnancy is no longer active after "
                         + previousDescription + "; no birth event was observed.");
 
+                    _withdrawalDiagnostics.Close(hero, "pregnancy no longer active");
                     _lastObservedState.Remove(heroId);
                 }
 
@@ -109,6 +131,8 @@ namespace PregnantLordsExpanded.Campaign
                 DiagnosticLog.Info(
                     hero.Name + " pregnancy observed at normalized month "
                     + result.ApproximateMonth + " via " + result.DataSource + ".");
+
+                _withdrawalDiagnostics.Observe(hero, result.ApproximateMonth);
             }
             else
             {

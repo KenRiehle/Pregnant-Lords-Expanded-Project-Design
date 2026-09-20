@@ -2,8 +2,8 @@
 
 ## Locked behavior
 
-Pregnant Lords Expanded is a complete standalone mod. It must work with vanilla Bannerlord
-1.5.2 when Affairs of Calradia/Friends With Benefits (AOC/FWB), DramaLord, and every other
+Pregnant Lords Expanded is a complete standalone mod. It must work with Bannerlord 1.5.3
+when Affairs of Calradia/Friends With Benefits (AOC/FWB), DramaLord, and every other
 pregnancy-related mod are absent.
 
 Optional integrations must never become required DLL references or take control of conception,

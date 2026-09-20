@@ -2,7 +2,8 @@
 
 ## Status and Boundary
 
-- Game target: **Mount & Blade II: Bannerlord 1.5.2**
+- Current game target: **Mount & Blade II: Bannerlord 1.5.3 beta**
+  (live-tested on build `1.5.3.122374`)
 - Milestone 1 is preserved at tag `v0.1.0-milestone1`.
 - Milestone 2 begins with a **diagnostic-only implementation**.
 - This milestone decides when a withdrawal request is due, who has authority to answer it,
@@ -151,6 +152,29 @@ except for extreme personalities or circumstances.
 Any random component is rolled once for that month's decision and stored in the request ledger.
 Loading a save must not reroll an already resolved decision. The diagnostic log should preserve
 the major positive and negative score factors so surprising AI behavior can be explained.
+
+### Milestone 2B Diagnostic Score
+
+The first live diagnostic uses no random component. This makes every result reproducible while
+we inspect the score balance in real campaigns.
+
+| Factor | Diagnostic contribution |
+|---|---:|
+| Month 4 / 5 / 6 / 7 / 8 / 9 | −20 / 0 / +20 / +40 / +60 / +80 |
+| Mercy level | 12 points per level, clamped to −2 through +2 |
+| Honor level | 12 points per level, clamped to −2 through +2 |
+| Valor level | −8 points per level, clamped to −2 through +2 |
+| Calculating level | 5 points per level, clamped to −2 through +2 |
+| Existing relation with the mother | Relation divided by 10, clamped to −10 through +10 |
+| Viable replacement available | +10 |
+| Nearby settlement protection | +10 |
+| Mother is her clan leader | +10 dynastic-risk weight |
+| Active siege or comparable military emergency | −40 |
+
+A score of zero or more recommends approval. A negative score recommends denial by an external
+authority or voluntary continuation when the mother is her own authority. This formula is
+provisional: Milestone 2B logs every component so live evidence can guide tuning before any
+decision changes gameplay.
 
 ## Provisional Commander Liability
 

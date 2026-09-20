@@ -2,10 +2,12 @@
 
 ## Development Status
 
-Development has begun against **Mount & Blade II: Bannerlord 1.5.2**.
+The current development target is **Mount & Blade II: Bannerlord 1.5.3 beta**
+(build `1.5.3.122374`).
 
 Milestone 1 is complete, live-tested on Bannerlord 1.5.2, and preserved at tag
-`v0.1.0-milestone1`. The source tree implements:
+`v0.1.0-milestone1`. Its pregnancy observation and Milestone 2 diagnostic systems were
+subsequently revalidated on Bannerlord 1.5.3.122374. The source tree implements:
 
 - Native pregnancy-record observation
 - Active pregnancy-duration lookup

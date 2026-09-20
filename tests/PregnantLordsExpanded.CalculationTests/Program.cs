@@ -33,6 +33,10 @@ namespace PregnantLordsExpanded.CalculationTests
             TestFamilyReactionSettings();
 
             Console.WriteLine("All Milestone 2A withdrawal calculation tests passed.");
+
+            TestAiWithdrawalDecisions();
+
+            Console.WriteLine("All Milestone 2B diagnostic decision tests passed.");
             return 0;
         }
 
@@ -260,6 +264,69 @@ namespace PregnantLordsExpanded.CalculationTests
                 FamilyReactionSettings.Default);
             AssertEqual(1, deduplicated.Count, "overlapping family roles are deduplicated");
             AssertReaction(deduplicated, "same_hero", -50);
+        }
+
+        private static void TestAiWithdrawalDecisions()
+        {
+            var neutralMonthFour = new AiWithdrawalDecisionInput
+            {
+                NormalizedMonth = 4
+            };
+            AiWithdrawalDecisionResult monthFourResult =
+                AiWithdrawalDecisionCalculator.Calculate(neutralMonthFour);
+            AssertEqual(
+                WithdrawalDecision.Deny,
+                monthFourResult.Decision,
+                "neutral authority may deny at month 4");
+
+            var neutralMonthFive = new AiWithdrawalDecisionInput
+            {
+                NormalizedMonth = 5
+            };
+            AiWithdrawalDecisionResult monthFiveResult =
+                AiWithdrawalDecisionCalculator.Calculate(neutralMonthFive);
+            AssertEqual(
+                WithdrawalDecision.Approve,
+                monthFiveResult.Decision,
+                "neutral authority approves at month 5");
+
+            var cruelMartialMonthEight = new AiWithdrawalDecisionInput
+            {
+                NormalizedMonth = 8,
+                MercyLevel = -2,
+                HonorLevel = -2,
+                ValorLevel = 2
+            };
+            AiWithdrawalDecisionResult monthEightResult =
+                AiWithdrawalDecisionCalculator.Calculate(cruelMartialMonthEight);
+            AssertEqual(
+                WithdrawalDecision.Deny,
+                monthEightResult.Decision,
+                "extreme personality can still deny at month 8");
+
+            cruelMartialMonthEight.NormalizedMonth = 9;
+            AiWithdrawalDecisionResult monthNineResult =
+                AiWithdrawalDecisionCalculator.Calculate(cruelMartialMonthEight);
+            AssertEqual(
+                WithdrawalDecision.Approve,
+                monthNineResult.Decision,
+                "birth-imminent month overcomes even extreme personality");
+
+            var selfRefusal = new AiWithdrawalDecisionInput
+            {
+                NormalizedMonth = 4,
+                IsSelfAuthority = true
+            };
+            AssertEqual(
+                WithdrawalDecision.ContinueVoluntarily,
+                AiWithdrawalDecisionCalculator.Calculate(selfRefusal).Decision,
+                "self authority owns voluntary refusal");
+
+            AssertEqual(
+                WithdrawalDecision.NoDecision,
+                AiWithdrawalDecisionCalculator.Calculate(
+                    new AiWithdrawalDecisionInput { NormalizedMonth = 3 }).Decision,
+                "warning month has no decision");
         }
 
         private static void TestFamilyReactionSettings()

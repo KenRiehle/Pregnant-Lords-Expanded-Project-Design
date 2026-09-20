@@ -7,10 +7,10 @@
   <ModuleType value="custom" />
 
   <DependedModules>
-    <DependedModule Id="Native" DependentVersion="v1.5.2" Optional="false" />
-    <DependedModule Id="SandBoxCore" DependentVersion="v1.5.2" Optional="false" />
-    <DependedModule Id="Sandbox" DependentVersion="v1.5.2" Optional="false" />
-    <DependedModule Id="StoryMode" DependentVersion="v1.5.2" Optional="true" />
+    <DependedModule Id="Native" DependentVersion="v1.5.3" Optional="false" />
+    <DependedModule Id="SandBoxCore" DependentVersion="v1.5.3" Optional="false" />
+    <DependedModule Id="Sandbox" DependentVersion="v1.5.3" Optional="false" />
+    <DependedModule Id="StoryMode" DependentVersion="v1.5.3" Optional="true" />
   </DependedModules>
 
   <SubModules>
