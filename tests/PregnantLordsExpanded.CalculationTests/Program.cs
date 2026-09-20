@@ -57,6 +57,10 @@ namespace PregnantLordsExpanded.CalculationTests
             TestMonthlyDenialResentment();
 
             Console.WriteLine("All Milestone 2D-D monthly denial resentment tests passed.");
+
+            TestApprovedWithdrawalExecution();
+
+            Console.WriteLine("All Milestone 2D-E approved withdrawal execution tests passed.");
             return 0;
         }
 
@@ -271,6 +275,87 @@ namespace PregnantLordsExpanded.CalculationTests
                     "mother#1|month:not-a-number",
                     out parsedMonth),
                 "invalid request month does not parse");
+        }
+
+        private static void TestApprovedWithdrawalExecution()
+        {
+            ApprovedWithdrawalExecutionResult fresh =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.None,
+                    false,
+                    false,
+                    true);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Traveling,
+                fresh.NextState,
+                "fresh approval begins native travel");
+            AssertEqual(true, fresh.ShouldBeginTravel,
+                "fresh approval requests exactly one travel start");
+
+            ApprovedWithdrawalExecutionResult blocked =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.Pending,
+                    false,
+                    false,
+                    false);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Pending,
+                blocked.NextState,
+                "temporarily blocked approval remains pending");
+            AssertEqual(false, blocked.ShouldBeginTravel,
+                "blocked approval does not start travel");
+
+            ApprovedWithdrawalExecutionResult reloadedTravel =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.Traveling,
+                    true,
+                    false,
+                    true);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Traveling,
+                reloadedTravel.NextState,
+                "reload preserves an active native trip");
+            AssertEqual(false, reloadedTravel.ShouldBeginTravel,
+                "reload cannot start the same active trip twice");
+
+            ApprovedWithdrawalExecutionResult arrived =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.Traveling,
+                    false,
+                    true,
+                    true);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Completed,
+                arrived.NextState,
+                "arrival at protected settlement completes withdrawal");
+            AssertEqual(false, arrived.ShouldBeginTravel,
+                "completed withdrawal never restarts travel");
+
+            ApprovedWithdrawalExecutionResult canceledRetry =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.Traveling,
+                    false,
+                    false,
+                    true);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Traveling,
+                canceledRetry.NextState,
+                "canceled native trip may immediately retry");
+            AssertEqual(true, canceledRetry.ShouldBeginTravel,
+                "canceled native trip requests one retry");
+
+            ApprovedWithdrawalExecutionResult completedStable =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.Completed,
+                    false,
+                    false,
+                    true);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Completed,
+                completedStable.NextState,
+                "completed historical execution remains complete after later departure");
+            AssertEqual(false, completedStable.ShouldBeginTravel,
+                "completed historical execution cannot replay");
         }
 
         private static void TestPregnancyBattleRisk()
