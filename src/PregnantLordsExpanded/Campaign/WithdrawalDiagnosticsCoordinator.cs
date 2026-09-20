@@ -11,11 +11,12 @@ using TaleWorlds.Library;
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Milestone 2B-2D-C campaign adapter. It records warnings, petitions, authority,
+    /// Milestone 2B-2D-D campaign adapter. It records warnings, petitions, authority,
     /// AI decisions, responsibility, and transitions into or out of protected rest.
-    /// Milestone 2D-C applies the revised one-time minor commander-denial relationship
-    /// penalty and presents save-safe player decisions. It still never moves a hero,
-    /// performs travel, or invokes the graduated battle-risk calculator.
+    /// Milestone 2D-D applies one routine -5 commander-denial relationship penalty per
+    /// separately denied normalized month from 4 through 9 and preserves the monthly
+    /// ledger across save/load. It still never moves a hero, performs travel, or
+    /// invokes the graduated battle-risk calculator.
     /// </summary>
     internal sealed class WithdrawalDiagnosticsCoordinator
     {
@@ -23,6 +24,8 @@ namespace PregnantLordsExpanded.Campaign
         private const string ProtectedRestSavePrefix = "PLE_M2C_";
         private const string RelationshipSavePrefix = "PLE_M2D_";
         private const string PlayerDecisionSavePrefix = "PLE_M2DB_";
+        private const string MonthlyDenialSavePrefix = "PLE_M2DD_";
+        private const int CurrentMonthlyDenialLedgerVersion = 1;
 
         private Dictionary<string, int> _pregnancySequenceByMother =
             new Dictionary<string, int>();
@@ -50,6 +53,9 @@ namespace PregnantLordsExpanded.Campaign
             new Dictionary<string, int>();
         private Dictionary<string, int> _finalDecisionByRequest =
             new Dictionary<string, int>();
+        private Dictionary<string, int> _appliedRoutineDenialPenaltyByPregnancyAndMonth =
+            new Dictionary<string, int>();
+        private int _monthlyDenialLedgerVersion;
 
         private readonly Queue<PlayerPromptRequest> _pendingPlayerPrompts =
             new Queue<PlayerPromptRequest>();
@@ -98,8 +104,15 @@ namespace PregnantLordsExpanded.Campaign
             dataStore.SyncData(
                 PlayerDecisionSavePrefix + "FinalDecisionByRequest",
                 ref _finalDecisionByRequest);
+            dataStore.SyncData(
+                MonthlyDenialSavePrefix + "AppliedRoutineDenialPenaltyByPregnancyAndMonth",
+                ref _appliedRoutineDenialPenaltyByPregnancyAndMonth);
+            dataStore.SyncData(
+                MonthlyDenialSavePrefix + "LedgerVersion",
+                ref _monthlyDenialLedgerVersion);
 
             EnsureCollections();
+            MigrateLegacyMonthlyDenialLedger();
         }
 
         public void ResetSessionPrompts()
@@ -546,7 +559,7 @@ namespace PregnantLordsExpanded.Campaign
                 + ", target liability=" + targetLiability
                 + ", newly recorded liability=" + additionalLiability
                 + ", relationship change applied=" + relationshipChangeApplied
-                + ", applied cumulative relationship penalty="
+                + ", accounted routine denial penalty total="
                 + appliedCumulativeRelationshipPenalty
                 + "; " + explanation + ".");
         }
@@ -575,29 +588,42 @@ namespace PregnantLordsExpanded.Campaign
                 _liabilityByPregnancyAndAuthority[liabilityKey] = targetLiability;
             }
 
-            int alreadyAppliedRelationPenalty;
-            _appliedRelationPenaltyByPregnancyAndAuthority.TryGetValue(
-                liabilityKey,
-                out alreadyAppliedRelationPenalty);
+            string monthlyPenaltyKey =
+                MonthlyDenialResentmentCalculator.GetLedgerKey(
+                    pregnancyKey,
+                    normalizedMonth);
+            bool monthAlreadyApplied =
+                _appliedRoutineDenialPenaltyByPregnancyAndMonth.ContainsKey(
+                    monthlyPenaltyKey);
             int pendingRelationshipPenalty =
-                CommanderRelationPenaltyCalculator.GetPendingPenalty(
+                MonthlyDenialResentmentCalculator.GetPendingPenalty(
                     normalizedMonth,
-                    alreadyAppliedRelationPenalty);
+                    monthAlreadyApplied);
 
             relationshipChangeApplied = 0;
-            appliedCumulativeRelationshipPenalty = alreadyAppliedRelationPenalty;
+            appliedCumulativeRelationshipPenalty =
+                GetAccountedRoutineDenialPenaltyTotal(pregnancyKey);
             if (pendingRelationshipPenalty < 0
                 && TryApplyCommanderRelationshipPenalty(
                     mother,
                     authorityHero,
-                    liabilityKey,
+                    monthlyPenaltyKey,
                     pendingRelationshipPenalty,
-                    targetLiability))
+                    pendingRelationshipPenalty))
             {
                 relationshipChangeApplied = pendingRelationshipPenalty;
-                appliedCumulativeRelationshipPenalty = targetLiability;
+                _appliedRoutineDenialPenaltyByPregnancyAndMonth[monthlyPenaltyKey] =
+                    pendingRelationshipPenalty;
+
+                int legacyAppliedTotal;
+                _appliedRelationPenaltyByPregnancyAndAuthority.TryGetValue(
+                    liabilityKey,
+                    out legacyAppliedTotal);
                 _appliedRelationPenaltyByPregnancyAndAuthority[liabilityKey] =
-                    targetLiability;
+                    legacyAppliedTotal + pendingRelationshipPenalty;
+
+                appliedCumulativeRelationshipPenalty =
+                    GetAccountedRoutineDenialPenaltyTotal(pregnancyKey);
             }
         }
 
@@ -606,14 +632,104 @@ namespace PregnantLordsExpanded.Campaign
             Hero authorityHero,
             int normalizedMonth)
         {
-            string liabilityKey = pregnancyKey + "|authority:" + HeroKey(authorityHero);
-            int alreadyApplied;
-            _appliedRelationPenaltyByPregnancyAndAuthority.TryGetValue(
-                liabilityKey,
-                out alreadyApplied);
-            return CommanderRelationPenaltyCalculator.GetPendingPenalty(
+            string monthlyPenaltyKey =
+                MonthlyDenialResentmentCalculator.GetLedgerKey(
+                    pregnancyKey,
+                    normalizedMonth);
+            bool monthAlreadyApplied =
+                _appliedRoutineDenialPenaltyByPregnancyAndMonth.ContainsKey(
+                    monthlyPenaltyKey);
+            return MonthlyDenialResentmentCalculator.GetPendingPenalty(
                 normalizedMonth,
-                alreadyApplied);
+                monthAlreadyApplied);
+        }
+
+        private int GetAccountedRoutineDenialPenaltyTotal(string pregnancyKey)
+        {
+            int total = 0;
+            string prefix = pregnancyKey + "|month:";
+            foreach (KeyValuePair<string, int> pair
+                in _appliedRoutineDenialPenaltyByPregnancyAndMonth)
+            {
+                if (pair.Key.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    total += pair.Value;
+                }
+            }
+
+            return total;
+        }
+
+        private void MigrateLegacyMonthlyDenialLedger()
+        {
+            if (_monthlyDenialLedgerVersion >= CurrentMonthlyDenialLedgerVersion)
+            {
+                return;
+            }
+
+            int migratedMonths = 0;
+            foreach (KeyValuePair<string, int> decision in _decisionByRequest)
+            {
+                if (decision.Value != (int)WithdrawalDecision.Deny)
+                {
+                    continue;
+                }
+
+                int normalizedMonth;
+                if (!MonthlyDenialResentmentCalculator.TryGetNormalizedMonthFromRequestKey(
+                        decision.Key,
+                        out normalizedMonth))
+                {
+                    continue;
+                }
+
+                int pregnancySeparator = decision.Key.IndexOf('|');
+                if (pregnancySeparator <= 0)
+                {
+                    continue;
+                }
+
+                string pregnancyKey = decision.Key.Substring(0, pregnancySeparator);
+                string authorityId;
+                if (!_authorityByRequest.TryGetValue(decision.Key, out authorityId)
+                    || string.IsNullOrWhiteSpace(authorityId))
+                {
+                    continue;
+                }
+
+                string legacyLiabilityKey =
+                    pregnancyKey + "|authority:" + authorityId;
+                int legacyAppliedPenalty;
+                if (!_appliedRelationPenaltyByPregnancyAndAuthority.TryGetValue(
+                        legacyLiabilityKey,
+                        out legacyAppliedPenalty)
+                    || legacyAppliedPenalty >= 0)
+                {
+                    continue;
+                }
+
+                string monthlyPenaltyKey =
+                    MonthlyDenialResentmentCalculator.GetLedgerKey(
+                        pregnancyKey,
+                        normalizedMonth);
+                if (!_appliedRoutineDenialPenaltyByPregnancyAndMonth.ContainsKey(
+                        monthlyPenaltyKey))
+                {
+                    _appliedRoutineDenialPenaltyByPregnancyAndMonth[monthlyPenaltyKey] =
+                        MonthlyDenialResentmentCalculator.RoutineDenialPenalty;
+                    migratedMonths++;
+                }
+            }
+
+            _monthlyDenialLedgerVersion = CurrentMonthlyDenialLedgerVersion;
+            if (migratedMonths > 0)
+            {
+                DiagnosticLog.Info(
+                    "Milestone 2D-D migration accounted for "
+                    + migratedMonths
+                    + " previously denied normalized month(s) without replaying "
+                    + "relationship penalties.");
+            }
         }
 
         private bool HasFinalPlayerDecision(string requestKey)
@@ -672,6 +788,9 @@ namespace PregnantLordsExpanded.Campaign
                 pregnancyKey + "|");
             RemoveKeysWithPrefix(
                 _appliedRelationPenaltyByPregnancyAndAuthority,
+                pregnancyKey + "|");
+            RemoveKeysWithPrefix(
+                _appliedRoutineDenialPenaltyByPregnancyAndMonth,
                 pregnancyKey + "|");
         }
 
@@ -1020,6 +1139,9 @@ namespace PregnantLordsExpanded.Campaign
             _departureSequenceByPregnancy = _departureSequenceByPregnancy
                 ?? new Dictionary<string, int>();
             _finalDecisionByRequest = _finalDecisionByRequest
+                ?? new Dictionary<string, int>();
+            _appliedRoutineDenialPenaltyByPregnancyAndMonth =
+                _appliedRoutineDenialPenaltyByPregnancyAndMonth
                 ?? new Dictionary<string, int>();
         }
 
