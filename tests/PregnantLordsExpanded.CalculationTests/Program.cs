@@ -57,6 +57,12 @@ namespace PregnantLordsExpanded.CalculationTests
             TestMonthlyDenialResentment();
 
             Console.WriteLine("All Milestone 2D-D monthly denial resentment tests passed.");
+
+            TestApprovedWithdrawalExecution();
+            TestPregnancyServiceRestriction();
+            TestLeaderOnlyArmyCleanup();
+
+            Console.WriteLine("All Milestone 2D-E approved withdrawal execution, service restriction, and PLE-only army cleanup tests passed.");
             return 0;
         }
 
@@ -271,6 +277,160 @@ namespace PregnantLordsExpanded.CalculationTests
                     "mother#1|month:not-a-number",
                     out parsedMonth),
                 "invalid request month does not parse");
+        }
+
+        private static void TestApprovedWithdrawalExecution()
+        {
+            ApprovedWithdrawalExecutionResult fresh =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.None,
+                    false,
+                    false,
+                    true);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Traveling,
+                fresh.NextState,
+                "fresh approval begins native travel");
+            AssertEqual(true, fresh.ShouldBeginTravel,
+                "fresh approval requests exactly one travel start");
+
+            ApprovedWithdrawalExecutionResult blocked =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.Pending,
+                    false,
+                    false,
+                    false);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Pending,
+                blocked.NextState,
+                "temporarily blocked approval remains pending");
+            AssertEqual(false, blocked.ShouldBeginTravel,
+                "blocked approval does not start travel");
+
+            ApprovedWithdrawalExecutionResult reloadedTravel =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.Traveling,
+                    true,
+                    false,
+                    true);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Traveling,
+                reloadedTravel.NextState,
+                "reload preserves an active native trip");
+            AssertEqual(false, reloadedTravel.ShouldBeginTravel,
+                "reload cannot start the same active trip twice");
+
+            ApprovedWithdrawalExecutionResult arrived =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.Traveling,
+                    false,
+                    true,
+                    true);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Completed,
+                arrived.NextState,
+                "arrival at protected settlement completes withdrawal");
+            AssertEqual(false, arrived.ShouldBeginTravel,
+                "completed withdrawal never restarts travel");
+
+            ApprovedWithdrawalExecutionResult canceledRetry =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.Traveling,
+                    false,
+                    false,
+                    true);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Traveling,
+                canceledRetry.NextState,
+                "canceled native trip may immediately retry");
+            AssertEqual(true, canceledRetry.ShouldBeginTravel,
+                "canceled native trip requests one retry");
+
+            ApprovedWithdrawalExecutionResult completedStable =
+                ApprovedWithdrawalExecutionCalculator.Calculate(
+                    ApprovedWithdrawalExecutionState.Completed,
+                    false,
+                    false,
+                    true);
+            AssertEqual(
+                ApprovedWithdrawalExecutionState.Completed,
+                completedStable.NextState,
+                "completed historical execution remains complete after later departure");
+            AssertEqual(false, completedStable.ShouldBeginTravel,
+                "completed historical execution cannot replay");
+        }
+
+        private static void TestPregnancyServiceRestriction()
+        {
+            AssertEqual(
+                false,
+                PregnancyServiceRestrictionCalculator.ShouldRestrict(
+                    ApprovedWithdrawalExecutionState.None,
+                    true),
+                "pregnancy without approved withdrawal is not service restricted");
+
+            AssertEqual(
+                true,
+                PregnancyServiceRestrictionCalculator.ShouldRestrict(
+                    ApprovedWithdrawalExecutionState.Pending,
+                    true),
+                "approved pending withdrawal blocks field service");
+
+            AssertEqual(
+                true,
+                PregnancyServiceRestrictionCalculator.ShouldRestrict(
+                    ApprovedWithdrawalExecutionState.Traveling,
+                    true),
+                "traveling withdrawal blocks field service");
+
+            AssertEqual(
+                true,
+                PregnancyServiceRestrictionCalculator.ShouldRestrict(
+                    ApprovedWithdrawalExecutionState.Completed,
+                    true),
+                "completed travel remains service restricted during pregnancy");
+
+            AssertEqual(
+                false,
+                PregnancyServiceRestrictionCalculator.ShouldRestrict(
+                    ApprovedWithdrawalExecutionState.Completed,
+                    false),
+                "pregnancy ending clears service restriction");
+        }
+
+        private static void TestLeaderOnlyArmyCleanup()
+        {
+            AssertEqual(
+                true,
+                LeaderOnlyArmyCleanupCalculator.ShouldDisbandAfterPleRemoval(
+                    true,
+                    false,
+                    0),
+                "PLE removal that leaves only the army leader queues native army disband");
+
+            AssertEqual(
+                false,
+                LeaderOnlyArmyCleanupCalculator.ShouldDisbandAfterPleRemoval(
+                    true,
+                    false,
+                    1),
+                "PLE removal does not disband an army that still has another attached party");
+
+            AssertEqual(
+                false,
+                LeaderOnlyArmyCleanupCalculator.ShouldDisbandAfterPleRemoval(
+                    false,
+                    false,
+                    0),
+                "ordinary native one-party army is not disbanded by PLE");
+
+            AssertEqual(
+                false,
+                LeaderOnlyArmyCleanupCalculator.ShouldDisbandAfterPleRemoval(
+                    true,
+                    true,
+                    0),
+                "army-leader withdrawal relies on Bannerlord native leader removal handling");
         }
 
         private static void TestPregnancyBattleRisk()

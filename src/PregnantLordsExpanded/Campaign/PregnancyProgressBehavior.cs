@@ -4,16 +4,19 @@ using PregnantLordsExpanded.Integrations;
 using PregnantLordsExpanded.Pregnancy;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Actions;
+using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.Library;
 
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Pregnancy observation and Milestone 2 withdrawal behavior. Milestone 2D-D applies
-    /// one routine commander-denial consequence per separately denied normalized month,
-    /// asks the player to resolve player-controlled petitions, and retains the tested
-    /// battle-risk calculations for a later campaign hook. It performs no travel, party
-    /// changes, or pregnancy-loss rolls.
+    /// Pregnancy observation and Milestone 2 withdrawal behavior. Milestone 2D-E-03e keeps
+    /// the monthly denial ledger from 2D-D and executes approved NPC withdrawal travel.
+    /// Ordinary NPC party members use native delayed hero travel; NPC party leaders keep
+    /// their party, leave the army, travel physically to protection, and retire through
+    /// Bannerlord's native disband-to-fortification path on arrival. Automatic player-
+    /// character movement remains deferred. The tested battle-risk calculator still has
+    /// no campaign hook and no pregnancy-loss roll is active.
     /// </summary>
     public sealed class PregnancyProgressBehavior : CampaignBehaviorBase
     {
@@ -29,6 +32,15 @@ namespace PregnantLordsExpanded.Campaign
             CampaignEvents.OnGivenBirthEvent.AddNonSerializedListener(this, OnGivenBirth);
             CampaignEvents.DailyTickHeroEvent.AddNonSerializedListener(this, OnDailyTickHero);
             CampaignEvents.HeroKilledEvent.AddNonSerializedListener(this, OnHeroKilled);
+            CampaignEvents.CanHeroLeadPartyEvent.AddNonSerializedListener(
+                this,
+                new ReferenceAction<Hero, bool>(OnCanHeroLeadParty));
+            CampaignEvents.OnPartyJoinedArmyEvent.AddNonSerializedListener(
+                this,
+                OnPartyJoinedArmy);
+            CampaignEvents.HourlyTickPartyEvent.AddNonSerializedListener(
+                this,
+                OnHourlyTickParty);
         }
 
         public override void SyncData(IDataStore dataStore)
@@ -44,7 +56,7 @@ namespace PregnantLordsExpanded.Campaign
             _withdrawalDiagnostics.ResetSessionPrompts();
             InformationManager.DisplayMessage(
                 new InformationMessage(
-                    "Pregnant Lords Expanded: Milestone 2D-D loaded - monthly denial resentment is active."));
+                    "Pregnant Lords Expanded: Milestone 2D-E-03e loaded - approved withdrawal service restriction, ghost-attachment cleanup, PLE-only leader-army cleanup, safe hourly arrival retirement, and party-leader travel are active."));
 
             foreach (Hero hero in Hero.AllAliveHeroes)
             {
@@ -83,6 +95,29 @@ namespace PregnantLordsExpanded.Campaign
         {
             _withdrawalDiagnostics.Close(victim, "maternal death: " + detail);
             Forget(victim);
+        }
+
+        private void OnCanHeroLeadParty(Hero hero, ref bool result)
+        {
+            if (!result || hero == null)
+            {
+                return;
+            }
+
+            if (_withdrawalDiagnostics.IsPregnancyServiceRestricted(hero))
+            {
+                result = false;
+            }
+        }
+
+        private void OnPartyJoinedArmy(MobileParty party)
+        {
+            _withdrawalDiagnostics.OnRestrictedPartyJoinedArmy(party);
+        }
+
+        private void OnHourlyTickParty(MobileParty party)
+        {
+            _withdrawalDiagnostics.OnRestrictedPartyHourlyTick(party);
         }
 
         private void OnDailyTickHero(Hero hero)
