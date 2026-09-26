@@ -67,6 +67,10 @@ namespace PregnantLordsExpanded.CalculationTests
             TestWithdrawalEscortPlanning();
 
             Console.WriteLine("All Milestone 2D-F-A withdrawal planning and elite escort allocation tests passed.");
+
+            TestPlayerEscortChoiceMapping();
+
+            Console.WriteLine("All Milestone 2D-F-B player escort-choice mapping tests passed.");
             return 0;
         }
 
@@ -1321,6 +1325,83 @@ namespace PregnantLordsExpanded.CalculationTests
             }
 
             throw new InvalidOperationException("No family reaction found for " + heroId + ".");
+        }
+
+
+        private static void TestPlayerEscortChoiceMapping()
+        {
+            AssertPlayerEscortChoice(
+                PlayerWithdrawalChoice.ApproveStrongEscort,
+                WithdrawalEscortPlan.Strong,
+                "strong escort player choice");
+            AssertPlayerEscortChoice(
+                PlayerWithdrawalChoice.ApproveLeanEscort,
+                WithdrawalEscortPlan.Lean,
+                "lean escort player choice");
+            AssertPlayerEscortChoice(
+                PlayerWithdrawalChoice.ApproveMinimalEscort,
+                WithdrawalEscortPlan.Minimal,
+                "minimal escort player choice");
+
+            PlayerWithdrawalResolution deny =
+                PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(
+                    PlayerWithdrawalChoice.DenyPetition);
+            AssertEqual(WithdrawalDecision.Deny, deny.AuthorityDecision,
+                "escort UI remain authority decision");
+            AssertEqual(WithdrawalDecision.Deny, deny.FinalDecision,
+                "escort UI remain final decision");
+            AssertEqual(WithdrawalResponsibility.CommanderOverride, deny.Responsibility,
+                "escort UI remain responsibility");
+            AssertEqual(true, deny.ApplyCommanderRelationPenalty,
+                "escort UI remain relation penalty flag");
+
+            WithdrawalEscortPlan ignoredPlan;
+            AssertEqual(false,
+                PlayerWithdrawalDecisionCalculator.TryGetEscortPlan(
+                    PlayerWithdrawalChoice.DenyPetition, out ignoredPlan),
+                "deny is not an escort plan");
+            AssertEqual(false,
+                PlayerWithdrawalDecisionCalculator.TryGetEscortPlan(
+                    PlayerWithdrawalChoice.ApprovePetition, out ignoredPlan),
+                "legacy approval has no new escort plan");
+
+            PlayerWithdrawalResolution legacy =
+                PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(
+                    PlayerWithdrawalChoice.ApprovePetition);
+            AssertEqual(WithdrawalDecision.Approve, legacy.FinalDecision,
+                "legacy approval remains compatible");
+
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(
+                    PlayerWithdrawalChoice.Withdraw),
+                "pregnant-player choice rejected by authority resolver");
+        }
+
+        private static void AssertPlayerEscortChoice(
+            PlayerWithdrawalChoice choice,
+            WithdrawalEscortPlan expectedPlan,
+            string name)
+        {
+            WithdrawalEscortPlan actualPlan;
+            if (!PlayerWithdrawalDecisionCalculator.TryGetEscortPlan(
+                    choice,
+                    out actualPlan))
+            {
+                throw new InvalidOperationException(name + " did not resolve an escort plan.");
+            }
+
+            AssertEqual(expectedPlan, actualPlan, name + " plan");
+
+            PlayerWithdrawalResolution resolution =
+                PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(choice);
+            AssertEqual(WithdrawalDecision.Approve, resolution.AuthorityDecision,
+                name + " authority decision");
+            AssertEqual(WithdrawalDecision.Approve, resolution.FinalDecision,
+                name + " final decision");
+            AssertEqual(WithdrawalResponsibility.WithdrawalApproved,
+                resolution.Responsibility, name + " responsibility");
+            AssertEqual(false, resolution.ApplyCommanderRelationPenalty,
+                name + " denial relation flag");
         }
 
         private static void AssertEqual<T>(T expected, T actual, string name)

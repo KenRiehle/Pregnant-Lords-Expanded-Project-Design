@@ -33,6 +33,7 @@ namespace PregnantLordsExpanded.Campaign
         private const string PlayerDecisionSavePrefix = "PLE_M2DB_";
         private const string MonthlyDenialSavePrefix = "PLE_M2DD_";
         private const string ApprovedWithdrawalSavePrefix = "PLE_M2DE_";
+        private const string EscortPlanningSavePrefix = "PLE_M2DF_";
         private const int CurrentMonthlyDenialLedgerVersion = 1;
 
         private Dictionary<string, int> _pregnancySequenceByMother =
@@ -69,6 +70,8 @@ namespace PregnantLordsExpanded.Campaign
             new Dictionary<string, string>();
         private Dictionary<string, string> _approvedWithdrawalRequestByPregnancy =
             new Dictionary<string, string>();
+        private Dictionary<string, int> _escortPlanByRequest =
+            new Dictionary<string, int>();
         private int _monthlyDenialLedgerVersion;
 
         private readonly Queue<PlayerPromptRequest> _pendingPlayerPrompts =
@@ -135,6 +138,9 @@ namespace PregnantLordsExpanded.Campaign
             dataStore.SyncData(
                 ApprovedWithdrawalSavePrefix + "RequestByPregnancy",
                 ref _approvedWithdrawalRequestByPregnancy);
+            dataStore.SyncData(
+                EscortPlanningSavePrefix + "PlanByRequest",
+                ref _escortPlanByRequest);
 
             EnsureCollections();
             MigrateLegacyMonthlyDenialLedger();
@@ -689,35 +695,59 @@ namespace PregnantLordsExpanded.Campaign
                 request.PregnancyKey,
                 request.Authority,
                 request.NormalizedMonth);
-            string penaltyText = pendingPenalty < 0
-                ? " Ordering her to remain will cause an additional relationship loss of "
-                    + Math.Abs(pendingPenalty) + "."
-                : string.Empty;
+
+            WithdrawalEscortPlanDefinition strong =
+                WithdrawalEscortPlanner.GetDefinition(WithdrawalEscortPlan.Strong);
+            WithdrawalEscortPlanDefinition lean =
+                WithdrawalEscortPlanner.GetDefinition(WithdrawalEscortPlan.Lean);
+            WithdrawalEscortPlanDefinition minimal =
+                WithdrawalEscortPlanner.GetDefinition(WithdrawalEscortPlan.Minimal);
 
             string text = request.Mother.Name + " is in normalized pregnancy month "
                 + request.NormalizedMonth
-                + " and requests permission to withdraw from field service."
-                + penaltyText
-                + " If approved, an eligible NPC will begin native Bannerlord travel"
-                + " toward a safe friendly fortification.";
+                + " and requests permission to withdraw from field service. "
+                + "Choose the escort she will retain for the withdrawal journey. "
+                + "The highest-tier troops available are retained first. "
+                + "The escort decision affects her welfare and her relationship with you.";
 
             List<InquiryElement> choices = new List<InquiryElement>
             {
                 new InquiryElement(
-                    PlayerWithdrawalChoice.ApprovePetition,
-                    "Approve Withdrawal",
+                    PlayerWithdrawalChoice.ApproveStrongEscort,
+                    "Approve Withdrawal — Strong Escort ("
+                        + strong.RequestedEscortSize + ")",
                     null,
                     true,
-                    "Authorize her to leave field service and travel toward protection."),
+                    "She retains the best " + strong.RequestedEscortSize
+                        + " troops available. High protection. Relationship: +"
+                        + strong.RelationshipChangeWithMother + "."),
+                new InquiryElement(
+                    PlayerWithdrawalChoice.ApproveLeanEscort,
+                    "Approve Withdrawal — Lean Escort ("
+                        + lean.RequestedEscortSize + ")",
+                    null,
+                    true,
+                    "She retains the best " + lean.RequestedEscortSize
+                        + " troops available. Standard protection. No immediate relationship change."),
+                new InquiryElement(
+                    PlayerWithdrawalChoice.ApproveMinimalEscort,
+                    "Approve Withdrawal — Minimal Escort ("
+                        + minimal.RequestedEscortSize + ")",
+                    null,
+                    true,
+                    "She retains only the best " + minimal.RequestedEscortSize
+                        + " troops available. Severe welfare risk. Relationship: "
+                        + minimal.RelationshipChangeWithMother
+                        + ". You may bear responsibility if she comes to harm."),
                 new InquiryElement(
                     PlayerWithdrawalChoice.DenyPetition,
-                    "Order Her to Remain",
+                    "Order Her to Remain in Service",
                     null,
                     true,
                     pendingPenalty < 0
-                        ? "Keep her in field service. Relationship change: "
-                            + pendingPenalty + "."
-                        : "Keep her in field service.")
+                        ? "Keep her in field service. Relationship change this month: "
+                            + pendingPenalty + ". Existing denial responsibility rules apply."
+                        : "Keep her in field service. Existing denial responsibility rules apply.")
             };
 
             return new MultiSelectionInquiryData(
@@ -746,17 +776,68 @@ namespace PregnantLordsExpanded.Campaign
 
             PlayerWithdrawalChoice choice =
                 (PlayerWithdrawalChoice)selected[0].Identifier;
-            if (choice != PlayerWithdrawalChoice.ApprovePetition
-                && choice != PlayerWithdrawalChoice.DenyPetition)
+
+            if (choice == PlayerWithdrawalChoice.DenyPetition)
+            {
+                ResolvePlayerPrompt(
+                    request,
+                    PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(choice),
+                    choice);
+                return;
+            }
+
+            WithdrawalEscortPlan escortPlan;
+            if (!PlayerWithdrawalDecisionCalculator.TryGetEscortPlan(
+                    choice,
+                    out escortPlan))
             {
                 RequeueInvalidPlayerSelection(request);
                 return;
             }
 
-            ResolvePlayerPrompt(
-                request,
-                PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(choice),
-                choice);
+            StagePlayerEscortSelection(request, choice, escortPlan);
+        }
+
+        private void StagePlayerEscortSelection(
+            PlayerPromptRequest request,
+            PlayerWithdrawalChoice choice,
+            WithdrawalEscortPlan escortPlan)
+        {
+            WithdrawalEscortPlanDefinition definition =
+                WithdrawalEscortPlanner.GetDefinition(escortPlan);
+
+            try
+            {
+                // 2D-F-B records the player's approved escort plan save-safely but
+                // deliberately does not start 2D-E travel yet. 2D-F-C will consume
+                // this staged plan, perform the roster handoff, apply the one-time
+                // relationship consequence, and then authorize the proven 2D-E lifecycle.
+                _escortPlanByRequest[request.RequestKey] = (int)escortPlan;
+                _decisionByRequest[request.RequestKey] = (int)WithdrawalDecision.Approve;
+                _finalDecisionByRequest[request.RequestKey] =
+                    (int)WithdrawalDecision.Approve;
+
+                DiagnosticLog.Info(
+                    request.Mother.Name
+                    + " withdrawal escort plan staged for player decision: plan="
+                    + escortPlan
+                    + ", requested escort=" + definition.RequestedEscortSize
+                    + ", relationship consequence="
+                    + definition.RelationshipChangeWithMother
+                    + ", welfare=" + definition.SafetyLevel
+                    + ", authority=" + request.Authority.Name
+                    + " (" + request.AuthorityResult.Kind + ")"
+                    + ", normalized month=" + request.NormalizedMonth
+                    + ", player choice=" + choice
+                    + ". Milestone 2D-F-B records the plan only; troop handoff, "
+                    + "relationship application, and approved-withdrawal execution are deferred to 2D-F-C.");
+            }
+            finally
+            {
+                _queuedPlayerPromptKeys.Remove(request.RequestKey);
+                _playerInquiryOpen = false;
+                TryShowNextPlayerPrompt();
+            }
         }
 
         private MultiSelectionInquiryData CreatePregnantPlayerInquiry(
@@ -1192,6 +1273,7 @@ namespace PregnantLordsExpanded.Campaign
             _approvedWithdrawalRequestByPregnancy.Remove(pregnancyKey);
             RemoveKeysWithPrefix(_decisionByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(_finalDecisionByRequest, pregnancyKey + "|");
+            RemoveKeysWithPrefix(_escortPlanByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(_authorityByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(
                 _liabilityByPregnancyAndAuthority,
@@ -2007,6 +2089,8 @@ namespace PregnantLordsExpanded.Campaign
             _approvedWithdrawalRequestByPregnancy =
                 _approvedWithdrawalRequestByPregnancy
                 ?? new Dictionary<string, string>();
+            _escortPlanByRequest = _escortPlanByRequest
+                ?? new Dictionary<string, int>();
         }
 
         private static void RemoveKeysWithPrefix<T>(

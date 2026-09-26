@@ -32,7 +32,10 @@ namespace PregnantLordsExpanded.Withdrawal
         ApprovePetition = 1,
         DenyPetition = 2,
         Withdraw = 3,
-        ContinueCampaigning = 4
+        ContinueCampaigning = 4,
+        ApproveStrongEscort = 5,
+        ApproveLeanEscort = 6,
+        ApproveMinimalEscort = 7
     }
 
     public enum IndependentWithdrawalAuthorityMode

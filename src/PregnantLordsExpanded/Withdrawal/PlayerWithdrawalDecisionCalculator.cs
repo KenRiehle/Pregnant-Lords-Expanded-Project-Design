@@ -4,7 +4,9 @@ namespace PregnantLordsExpanded.Withdrawal
 {
     /// <summary>
     /// Resolves player-facing choices without changing campaign state. The campaign
-    /// adapter owns prompts, persistence, relationship changes, and later travel.
+    /// adapter owns prompts, persistence, relationship changes, and travel.
+    /// Milestone 2D-F-B adds explicit escort-plan approval choices while preserving
+    /// the legacy approval value for save/backward compatibility.
     /// </summary>
     public static class PlayerWithdrawalDecisionCalculator
     {
@@ -14,6 +16,9 @@ namespace PregnantLordsExpanded.Withdrawal
             switch (choice)
             {
                 case PlayerWithdrawalChoice.ApprovePetition:
+                case PlayerWithdrawalChoice.ApproveStrongEscort:
+                case PlayerWithdrawalChoice.ApproveLeanEscort:
+                case PlayerWithdrawalChoice.ApproveMinimalEscort:
                     return new PlayerWithdrawalResolution(
                         WithdrawalDecision.Approve,
                         WithdrawalDecision.Approve,
@@ -30,7 +35,31 @@ namespace PregnantLordsExpanded.Withdrawal
                 default:
                     throw new ArgumentOutOfRangeException(
                         nameof(choice),
-                        "A player authority must approve or deny the petition.");
+                        "A player authority must approve an escort plan or deny the petition.");
+            }
+        }
+
+        public static bool TryGetEscortPlan(
+            PlayerWithdrawalChoice choice,
+            out WithdrawalEscortPlan plan)
+        {
+            switch (choice)
+            {
+                case PlayerWithdrawalChoice.ApproveStrongEscort:
+                    plan = WithdrawalEscortPlan.Strong;
+                    return true;
+
+                case PlayerWithdrawalChoice.ApproveLeanEscort:
+                    plan = WithdrawalEscortPlan.Lean;
+                    return true;
+
+                case PlayerWithdrawalChoice.ApproveMinimalEscort:
+                    plan = WithdrawalEscortPlan.Minimal;
+                    return true;
+
+                default:
+                    plan = default(WithdrawalEscortPlan);
+                    return false;
             }
         }
 
