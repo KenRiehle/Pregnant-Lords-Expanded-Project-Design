@@ -546,3 +546,38 @@ The following are designed separately after withdrawal authority is proven:
 - The persisted `Pending -> Traveling -> Completed` execution ledger remains authoritative across save/load.
 - Player-character automatic movement remains deferred. Pregnancy-loss battle execution remains disabled.
 - The planned 35/50 escort and pre-departure troop handoff/RP system remains deferred until this lifecycle passes live validation. When troop splitting is implemented, the withdrawing mother always retains the highest-tier available troops for her personal escort; lower-tier surplus troops are transferred or garrisoned first.
+
+
+## Milestone 2D-F — Withdrawal Planning and Elite Escort Allocation
+
+Milestone 2D-E remains the locked approved-withdrawal lifecycle. 2D-F layers escort planning on
+an already-approved withdrawal without replacing or bypassing that native travel/retirement path.
+
+### 2D-F-A locked escort plans
+
+The first increment is pure calculation only. It does not mutate a Bannerlord roster.
+
+- **Minimal Escort** — 5 troops, −25 relationship with the mother, `SevereRisk`
+- **Lean Escort** — 35 troops, no immediate relationship change, `Standard`
+- **Strong Escort** — 50 troops, +5 relationship with the mother, `High`
+
+The relationship values are one-time consequences of the eventual player/AI escort choice. They
+are not monthly denial penalties and must not be replayed by daily ticks or reloads.
+
+For every plan, the withdrawing mother keeps the highest-tier ordinary troops available. Tier is
+sorted descending, then troop level descending. Equal-priority stacks use an ordinal troop-id
+tie-breaker so the same save and roster produce the same plan after reload. A cutoff may split a
+stack; no troop may be created, destroyed, or silently discarded.
+
+The planner records requested escort size, original troop count, actual escort size, per-stack
+retained/surplus counts, relationship consequence, and safety level. If fewer troops exist than the
+requested escort, every available troop is retained and the planner never creates replacements.
+
+`Remain in service` is deliberately not an escort plan. It remains a withdrawal-petition decision
+handled by the existing denial/responsibility system.
+
+Later 2D-F increments will attach this planner to the Random Events-style player screen, perform
+actual surplus handoff to valid army parties up to their party-size limits, let untransferred troops
+continue with the mother into the existing native retirement/garrison path, and give AI commanders
+the same plan choices. Minimal Escort must carry an explicit welfare warning because the commander
+is using authority to retain manpower while materially increasing the pregnant hero's travel risk.

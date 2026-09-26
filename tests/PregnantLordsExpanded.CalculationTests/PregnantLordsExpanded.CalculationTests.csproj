@@ -30,5 +30,7 @@
              Link="Withdrawal\PregnancyBattleRiskCalculator.cs" />
     <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\ApprovedWithdrawalExecutionCalculator.cs"
              Link="Withdrawal\ApprovedWithdrawalExecutionCalculator.cs" />
+    <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\WithdrawalEscortPlanner.cs"
+             Link="Withdrawal\WithdrawalEscortPlanner.cs" />
   </ItemGroup>
 </Project>

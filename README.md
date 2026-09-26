@@ -23,6 +23,7 @@ subsequently revalidated on Bannerlord 1.5.3.122374. The source tree implements:
 - Pure, automated post-battle pregnancy-risk calculations awaiting a campaign hook
 - Native delayed withdrawal travel for eligible approved NPC party members
 - Approved NPC party leaders now withdraw physically with their existing party and retire natively into protection
+- Milestone 2D-F-A pure escort planning: Minimal 5 / −25 relation / Severe Risk, Lean 35 / 0 / Standard, Strong 50 / +5 / High, with deterministic highest-tier troop retention and no troop mutation yet
 - No active pregnancy-loss roll, fertility change, or birth replacement
 
 Milestones 2A through 2D-D have passed automated and live campaign tests on Bannerlord
@@ -34,8 +35,10 @@ travel, including existing NPC party leaders, and keeps an approved pregnant NPC
 normal party leadership/army service until that pregnancy ends. Party-leader travel preserves the
 existing party until native fortification retirement, and mixed land/naval routing is permitted.
 Arrival retirement, route reassertion, ghost-attachment cleanup, and any PLE-caused leader-only army disband run on a safe hourly party tick so native conversation/army callbacks never retire a live party or disband the remaining army mid-action.
-Player-character automatic withdrawal remains deferred. No battle hook or pregnancy-loss roll is
-active yet.
+Player-character automatic withdrawal remains deferred. Milestone 2D-F-A adds only the pure
+withdrawal escort planner and calculation tests; it does not yet move troops, apply the escort
+relationship change in campaign state, or display the Random Events-style player choice screen.
+No battle hook or pregnancy-loss roll is active yet.
 
 Supporting specifications:
 

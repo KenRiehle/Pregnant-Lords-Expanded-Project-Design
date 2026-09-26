@@ -63,6 +63,10 @@ namespace PregnantLordsExpanded.CalculationTests
             TestLeaderOnlyArmyCleanup();
 
             Console.WriteLine("All Milestone 2D-E approved withdrawal execution, service restriction, and PLE-only army cleanup tests passed.");
+
+            TestWithdrawalEscortPlanning();
+
+            Console.WriteLine("All Milestone 2D-F-A withdrawal planning and elite escort allocation tests passed.");
             return 0;
         }
 
@@ -1042,6 +1046,201 @@ namespace PregnantLordsExpanded.CalculationTests
             AssertThrows<ArgumentNullException>(
                 () => ProtectedRestTransitionCalculator.Calculate(null),
                 "null protected-rest transition input");
+        }
+
+
+        private static void TestWithdrawalEscortPlanning()
+        {
+            WithdrawalEscortPlanDefinition minimal =
+                WithdrawalEscortPlanner.GetDefinition(WithdrawalEscortPlan.Minimal);
+            AssertEqual(5, minimal.RequestedEscortSize,
+                "minimal escort requests five troops");
+            AssertEqual(-25, minimal.RelationshipChangeWithMother,
+                "minimal escort applies minus twenty-five relationship");
+            AssertEqual(WithdrawalEscortSafetyLevel.SevereRisk, minimal.SafetyLevel,
+                "minimal escort is severe welfare risk");
+            AssertEqual(true, minimal.RequiresWelfareWarning,
+                "minimal escort requires welfare warning");
+
+            WithdrawalEscortPlanDefinition lean =
+                WithdrawalEscortPlanner.GetDefinition(WithdrawalEscortPlan.Lean);
+            AssertEqual(35, lean.RequestedEscortSize,
+                "lean escort requests thirty-five troops");
+            AssertEqual(0, lean.RelationshipChangeWithMother,
+                "lean escort has no immediate relationship change");
+            AssertEqual(WithdrawalEscortSafetyLevel.Standard, lean.SafetyLevel,
+                "lean escort is standard protection");
+
+            WithdrawalEscortPlanDefinition strong =
+                WithdrawalEscortPlanner.GetDefinition(WithdrawalEscortPlan.Strong);
+            AssertEqual(50, strong.RequestedEscortSize,
+                "strong escort requests fifty troops");
+            AssertEqual(5, strong.RelationshipChangeWithMother,
+                "strong escort applies plus five relationship");
+            AssertEqual(WithdrawalEscortSafetyLevel.High, strong.SafetyLevel,
+                "strong escort is high protection");
+
+            var exactFifty = new[]
+            {
+                EscortStack("tier6", 6, 31, 5),
+                EscortStack("tier5", 5, 26, 10),
+                EscortStack("tier4", 4, 21, 20),
+                EscortStack("tier2", 2, 11, 15)
+            };
+
+            WithdrawalEscortAllocation strongFifty =
+                WithdrawalEscortPlanner.Calculate(WithdrawalEscortPlan.Strong, exactFifty);
+            AssertEqual(50, strongFifty.OriginalTroopCount,
+                "strong fifty original count");
+            AssertEqual(50, strongFifty.ActualEscortSize,
+                "strong fifty retains all fifty");
+            AssertEqual(0, strongFifty.SurplusTroopCount,
+                "strong fifty has no surplus");
+            AssertEqual(true, strongFifty.IsConserved,
+                "strong fifty conserves all troops");
+
+            WithdrawalEscortAllocation leanFifty =
+                WithdrawalEscortPlanner.Calculate(WithdrawalEscortPlan.Lean, exactFifty);
+            AssertEqual(35, leanFifty.ActualEscortSize,
+                "lean fifty retains thirty-five");
+            AssertEqual(15, leanFifty.SurplusTroopCount,
+                "lean fifty identifies fifteen surplus");
+            AssertEscortStack(leanFifty, "tier6", 5, 0);
+            AssertEscortStack(leanFifty, "tier5", 10, 0);
+            AssertEscortStack(leanFifty, "tier4", 20, 0);
+            AssertEscortStack(leanFifty, "tier2", 0, 15);
+            AssertEqual(true, leanFifty.IsConserved,
+                "lean fifty conserves all troops");
+
+            WithdrawalEscortAllocation minimalFifty =
+                WithdrawalEscortPlanner.Calculate(WithdrawalEscortPlan.Minimal, exactFifty);
+            AssertEqual(5, minimalFifty.ActualEscortSize,
+                "minimal fifty retains five");
+            AssertEqual(45, minimalFifty.SurplusTroopCount,
+                "minimal fifty identifies forty-five surplus");
+            AssertEscortStack(minimalFifty, "tier6", 5, 0);
+            AssertEscortStack(minimalFifty, "tier5", 0, 10);
+            AssertEscortStack(minimalFifty, "tier4", 0, 20);
+            AssertEscortStack(minimalFifty, "tier2", 0, 15);
+            AssertEqual(true, minimalFifty.IsConserved,
+                "minimal fifty conserves all troops");
+
+            WithdrawalEscortAllocation emptyStrong =
+                WithdrawalEscortPlanner.Calculate(
+                    WithdrawalEscortPlan.Strong,
+                    new WithdrawalEscortTroopStack[0]);
+            AssertEqual(0, emptyStrong.OriginalTroopCount,
+                "empty strong original count");
+            AssertEqual(0, emptyStrong.ActualEscortSize,
+                "empty strong creates no troops");
+            AssertEqual(0, emptyStrong.SurplusTroopCount,
+                "empty strong has no surplus");
+            AssertEqual(true, emptyStrong.IsConserved,
+                "empty strong remains conserved");
+
+            WithdrawalEscortAllocation strongFortyNine =
+                WithdrawalEscortPlanner.Calculate(
+                    WithdrawalEscortPlan.Strong,
+                    new[] { EscortStack("troop", 3, 15, 49) });
+            AssertEqual(49, strongFortyNine.ActualEscortSize,
+                "strong escort never creates the missing fiftieth troop");
+            AssertEqual(0, strongFortyNine.SurplusTroopCount,
+                "strong forty-nine has no surplus");
+
+            WithdrawalEscortAllocation leanThirtySix =
+                WithdrawalEscortPlanner.Calculate(
+                    WithdrawalEscortPlan.Lean,
+                    new[] { EscortStack("troop", 3, 15, 36) });
+            AssertEqual(35, leanThirtySix.ActualEscortSize,
+                "lean thirty-six retains thirty-five");
+            AssertEqual(1, leanThirtySix.SurplusTroopCount,
+                "lean thirty-six identifies one surplus");
+
+            WithdrawalEscortAllocation leanThirtyFour =
+                WithdrawalEscortPlanner.Calculate(
+                    WithdrawalEscortPlan.Lean,
+                    new[] { EscortStack("troop", 3, 15, 34) });
+            AssertEqual(34, leanThirtyFour.ActualEscortSize,
+                "lean thirty-four retains every available troop");
+            AssertEqual(0, leanThirtyFour.SurplusTroopCount,
+                "lean thirty-four creates no troops and no surplus");
+
+            var splitRoster = new[]
+            {
+                EscortStack("t6", 6, 31, 5),
+                EscortStack("t5", 5, 26, 10),
+                EscortStack("t4", 4, 21, 25),
+                EscortStack("t3", 3, 16, 30)
+            };
+            WithdrawalEscortAllocation split =
+                WithdrawalEscortPlanner.Calculate(WithdrawalEscortPlan.Lean, splitRoster);
+            AssertEscortStack(split, "t6", 5, 0);
+            AssertEscortStack(split, "t5", 10, 0);
+            AssertEscortStack(split, "t4", 20, 5);
+            AssertEscortStack(split, "t3", 0, 30);
+            AssertEqual(70, split.OriginalTroopCount,
+                "split cutoff original count");
+            AssertEqual(35, split.ActualEscortSize,
+                "split cutoff actual escort");
+            AssertEqual(35, split.SurplusTroopCount,
+                "split cutoff surplus");
+            AssertEqual(true, split.IsConserved,
+                "split cutoff conserves every troop");
+
+            var deterministicTie = new[]
+            {
+                EscortStack("zeta", 6, 30, 5),
+                EscortStack("alpha", 6, 30, 5)
+            };
+            WithdrawalEscortAllocation tie =
+                WithdrawalEscortPlanner.Calculate(
+                    WithdrawalEscortPlan.Minimal,
+                    deterministicTie);
+            AssertEscortStack(tie, "alpha", 5, 0);
+            AssertEscortStack(tie, "zeta", 0, 5);
+
+            AssertThrows<ArgumentNullException>(
+                () => WithdrawalEscortPlanner.Calculate(
+                    WithdrawalEscortPlan.Lean,
+                    null),
+                "null escort roster");
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => new WithdrawalEscortTroopStack("bad", 1, 1, 0),
+                "zero-sized troop stack");
+        }
+
+        private static WithdrawalEscortTroopStack EscortStack(
+            string troopId,
+            int tier,
+            int level,
+            int count)
+        {
+            return new WithdrawalEscortTroopStack(troopId, tier, level, count);
+        }
+
+        private static void AssertEscortStack(
+            WithdrawalEscortAllocation allocation,
+            string troopId,
+            int expectedRetained,
+            int expectedSurplus)
+        {
+            foreach (WithdrawalEscortStackAllocation stack in allocation.Stacks)
+            {
+                if (stack.TroopId == troopId)
+                {
+                    AssertEqual(expectedRetained, stack.RetainedCount,
+                        "escort retained count for " + troopId);
+                    AssertEqual(expectedSurplus, stack.SurplusCount,
+                        "escort surplus count for " + troopId);
+                    AssertEqual(stack.OriginalCount,
+                        stack.RetainedCount + stack.SurplusCount,
+                        "escort stack conservation for " + troopId);
+                    return;
+                }
+            }
+
+            throw new InvalidOperationException(
+                "No escort allocation found for " + troopId + ".");
         }
 
         private static ProtectedRestTransitionInput RestTransition(
