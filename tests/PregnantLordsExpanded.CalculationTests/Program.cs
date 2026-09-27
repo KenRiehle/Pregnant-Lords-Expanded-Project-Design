@@ -71,6 +71,10 @@ namespace PregnantLordsExpanded.CalculationTests
             TestPlayerEscortChoiceMapping();
 
             Console.WriteLine("All Milestone 2D-F-B player escort-choice mapping tests passed.");
+
+            TestWithdrawalEscortHandoffPlanning();
+
+            Console.WriteLine("All Milestone 2D-F-C escort handoff capacity-planning tests passed.");
             return 0;
         }
 
@@ -1375,6 +1379,101 @@ namespace PregnantLordsExpanded.CalculationTests
                 () => PlayerWithdrawalDecisionCalculator.ResolvePlayerAuthority(
                     PlayerWithdrawalChoice.Withdraw),
                 "pregnant-player choice rejected by authority resolver");
+        }
+
+        private static void TestWithdrawalEscortHandoffPlanning()
+        {
+            WithdrawalEscortHandoffAllocation ample =
+                WithdrawalEscortHandoffPlanner.Calculate(
+                    75,
+                    new[]
+                    {
+                        new WithdrawalEscortRecipientCapacity("player", 80),
+                        new WithdrawalEscortRecipientCapacity("lord", 20)
+                    });
+            AssertEqual(75, ample.TransferredTroopCount,
+                "ample handoff transfers every surplus troop");
+            AssertEqual(0, ample.RemainingWithMother,
+                "ample handoff leaves no surplus with mother");
+            AssertRecipientShare(ample, "player", 75);
+            AssertRecipientShare(ample, "lord", 0);
+            AssertEqual(true, ample.IsConserved,
+                "ample handoff conserves surplus");
+
+            WithdrawalEscortHandoffAllocation limited =
+                WithdrawalEscortHandoffPlanner.Calculate(
+                    75,
+                    new[]
+                    {
+                        new WithdrawalEscortRecipientCapacity("player", 30),
+                        new WithdrawalEscortRecipientCapacity("lord", 20)
+                    });
+            AssertEqual(50, limited.TransferredTroopCount,
+                "limited handoff fills available recipient capacity");
+            AssertEqual(25, limited.RemainingWithMother,
+                "limited handoff leaves untransferable surplus with mother");
+            AssertRecipientShare(limited, "player", 30);
+            AssertRecipientShare(limited, "lord", 20);
+            AssertEqual(true, limited.IsConserved,
+                "limited handoff conserves surplus");
+
+            WithdrawalEscortHandoffAllocation deterministicTie =
+                WithdrawalEscortHandoffPlanner.Calculate(
+                    45,
+                    new[]
+                    {
+                        new WithdrawalEscortRecipientCapacity("zeta", 30),
+                        new WithdrawalEscortRecipientCapacity("alpha", 30)
+                    });
+            AssertRecipientShare(deterministicTie, "alpha", 30);
+            AssertRecipientShare(deterministicTie, "zeta", 15);
+            AssertEqual(true, deterministicTie.IsConserved,
+                "equal-capacity recipient order is deterministic");
+
+            WithdrawalEscortHandoffAllocation zero =
+                WithdrawalEscortHandoffPlanner.Calculate(
+                    0,
+                    new[]
+                    {
+                        new WithdrawalEscortRecipientCapacity("player", 100)
+                    });
+            AssertEqual(0, zero.TransferredTroopCount,
+                "zero surplus transfers nothing");
+            AssertEqual(0, zero.RemainingWithMother,
+                "zero surplus leaves nothing behind");
+            AssertEqual(true, zero.IsConserved,
+                "zero surplus remains conserved");
+
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => WithdrawalEscortHandoffPlanner.Calculate(
+                    -1,
+                    new WithdrawalEscortRecipientCapacity[0]),
+                "negative handoff surplus");
+            AssertThrows<ArgumentNullException>(
+                () => WithdrawalEscortHandoffPlanner.Calculate(1, null),
+                "null handoff recipient list");
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => new WithdrawalEscortRecipientCapacity("bad", -1),
+                "negative recipient capacity");
+        }
+
+        private static void AssertRecipientShare(
+            WithdrawalEscortHandoffAllocation allocation,
+            string recipientId,
+            int expectedAssigned)
+        {
+            foreach (WithdrawalEscortRecipientShare recipient in allocation.Recipients)
+            {
+                if (recipient.RecipientId == recipientId)
+                {
+                    AssertEqual(expectedAssigned, recipient.AssignedTroops,
+                        "handoff share for " + recipientId);
+                    return;
+                }
+            }
+
+            throw new InvalidOperationException(
+                "No handoff share found for " + recipientId + ".");
         }
 
         private static void AssertPlayerEscortChoice(

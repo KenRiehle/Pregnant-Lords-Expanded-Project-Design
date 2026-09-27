@@ -6,6 +6,7 @@ using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Actions;
 using TaleWorlds.CampaignSystem.CharacterDevelopment;
 using TaleWorlds.CampaignSystem.Party;
+using TaleWorlds.CampaignSystem.Roster;
 using TaleWorlds.CampaignSystem.Settlements;
 using TaleWorlds.Core;
 using TaleWorlds.Library;
@@ -34,6 +35,7 @@ namespace PregnantLordsExpanded.Campaign
         private const string MonthlyDenialSavePrefix = "PLE_M2DD_";
         private const string ApprovedWithdrawalSavePrefix = "PLE_M2DE_";
         private const string EscortPlanningSavePrefix = "PLE_M2DF_";
+        private const string EscortExecutionSavePrefix = "PLE_M2DFC_";
         private const int CurrentMonthlyDenialLedgerVersion = 1;
 
         private Dictionary<string, int> _pregnancySequenceByMother =
@@ -71,6 +73,10 @@ namespace PregnantLordsExpanded.Campaign
         private Dictionary<string, string> _approvedWithdrawalRequestByPregnancy =
             new Dictionary<string, string>();
         private Dictionary<string, int> _escortPlanByRequest =
+            new Dictionary<string, int>();
+        private Dictionary<string, int> _escortRelationshipChangeByRequest =
+            new Dictionary<string, int>();
+        private Dictionary<string, int> _escortExecutionCompletedByRequest =
             new Dictionary<string, int>();
         private int _monthlyDenialLedgerVersion;
 
@@ -141,6 +147,12 @@ namespace PregnantLordsExpanded.Campaign
             dataStore.SyncData(
                 EscortPlanningSavePrefix + "PlanByRequest",
                 ref _escortPlanByRequest);
+            dataStore.SyncData(
+                EscortExecutionSavePrefix + "RelationshipChangeByRequest",
+                ref _escortRelationshipChangeByRequest);
+            dataStore.SyncData(
+                EscortExecutionSavePrefix + "CompletedByRequest",
+                ref _escortExecutionCompletedByRequest);
 
             EnsureCollections();
             MigrateLegacyMonthlyDenialLedger();
@@ -434,6 +446,17 @@ namespace PregnantLordsExpanded.Campaign
             WithdrawalAuthorityContext authorityContext = CreateAuthorityContext(mother);
             string motherId = HeroKey(mother);
             string pregnancyKey = GetOrCreatePregnancyKey(motherId);
+
+            // 2D-F-C consumes a save-persisted escort choice before any new petition
+            // logic runs. This also allows a staged 2D-F-B save to continue forward
+            // after upgrading to 2D-F-C without replaying the decision UI.
+            if (TryProcessStagedEscortExecution(
+                    mother,
+                    normalizedMonth,
+                    pregnancyKey))
+            {
+                return;
+            }
 
             if (ObserveApprovedWithdrawalExecution(
                 mother,
@@ -808,18 +831,17 @@ namespace PregnantLordsExpanded.Campaign
 
             try
             {
-                // 2D-F-B records the player's approved escort plan save-safely but
-                // deliberately does not start 2D-E travel yet. 2D-F-C will consume
-                // this staged plan, perform the roster handoff, apply the one-time
-                // relationship consequence, and then authorize the proven 2D-E lifecycle.
                 _escortPlanByRequest[request.RequestKey] = (int)escortPlan;
                 _decisionByRequest[request.RequestKey] = (int)WithdrawalDecision.Approve;
                 _finalDecisionByRequest[request.RequestKey] =
                     (int)WithdrawalDecision.Approve;
+                _lastResponsibilityByPregnancy[request.PregnancyKey] =
+                    (int)WithdrawalResponsibility.WithdrawalApproved;
+                _lastResponsibleHeroByPregnancy.Remove(request.PregnancyKey);
 
                 DiagnosticLog.Info(
                     request.Mother.Name
-                    + " withdrawal escort plan staged for player decision: plan="
+                    + " withdrawal escort choice staged for safe 2D-F-C execution: plan="
                     + escortPlan
                     + ", requested escort=" + definition.RequestedEscortSize
                     + ", relationship consequence="
@@ -829,8 +851,9 @@ namespace PregnantLordsExpanded.Campaign
                     + " (" + request.AuthorityResult.Kind + ")"
                     + ", normalized month=" + request.NormalizedMonth
                     + ", player choice=" + choice
-                    + ". Milestone 2D-F-B records the plan only; troop handoff, "
-                    + "relationship application, and approved-withdrawal execution are deferred to 2D-F-C.");
+                    + ". Relationship application, roster handoff, army separation,"
+                    + " and 2D-E travel are intentionally deferred until the next safe"
+                    + " pregnancy observation outside the inquiry callback.");
             }
             finally
             {
@@ -838,6 +861,689 @@ namespace PregnantLordsExpanded.Campaign
                 _playerInquiryOpen = false;
                 TryShowNextPlayerPrompt();
             }
+        }
+
+        private bool EnsureEscortRelationshipConsequenceApplied(
+            Hero mother,
+            Hero authority,
+            string requestKey,
+            WithdrawalEscortPlanDefinition definition)
+        {
+            int appliedChange;
+            if (_escortRelationshipChangeByRequest.TryGetValue(
+                    requestKey,
+                    out appliedChange))
+            {
+                return true;
+            }
+
+            int relationshipChange = definition.RelationshipChangeWithMother;
+            if (relationshipChange == 0)
+            {
+                _escortRelationshipChangeByRequest[requestKey] = 0;
+                return true;
+            }
+
+            if (mother == null || authority == null || authority == mother)
+            {
+                DiagnosticLog.WarnOnce(
+                    "m2dfc-relation-authority:" + requestKey,
+                    "Could not apply the staged withdrawal escort relationship consequence"
+                    + " because the original authority hero could not be resolved. The"
+                    + " escort choice remains staged and will retry later.");
+                return false;
+            }
+
+            try
+            {
+                int before = mother.GetRelation(authority);
+                int actualChange = ApplyExactEscortRelationshipChange(
+                    mother,
+                    authority,
+                    relationshipChange);
+                int after = mother.GetRelation(authority);
+
+                _escortRelationshipChangeByRequest[requestKey] = relationshipChange;
+                DiagnosticLog.Info(
+                    mother.Name + " escort-choice relationship consequence applied with "
+                    + authority.Name + ": requested change=" + relationshipChange
+                    + ", actual change=" + actualChange
+                    + ", effective relation before=" + before
+                    + ", effective relation after=" + after
+                    + ", request=" + requestKey
+                    + ". Escort-choice relationship changes bypass Bannerlord's positive"
+                    + " relation-gain multiplier so the configured consequence is exact,"
+                    + " subject only to the native relationship limits.");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                DiagnosticLog.WarnOnce(
+                    "m2dfc-relation:" + requestKey,
+                    "Could not apply the escort-choice relationship consequence for "
+                    + mother.Name + " and " + authority.Name
+                    + "; the staged withdrawal will retry later without recording the"
+                    + " relationship effect as applied. "
+                    + exception.GetType().Name + ": " + exception.Message);
+                return false;
+            }
+        }
+
+        private bool TryProcessStagedEscortExecution(
+            Hero mother,
+            int normalizedMonth,
+            string pregnancyKey)
+        {
+            string prefix = pregnancyKey + "|";
+            string requestKey = null;
+            foreach (string candidate in _escortPlanByRequest.Keys)
+            {
+                if (!candidate.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (requestKey == null
+                    || string.Compare(candidate, requestKey, StringComparison.Ordinal) < 0)
+                {
+                    requestKey = candidate;
+                }
+            }
+
+            if (requestKey == null)
+            {
+                return false;
+            }
+
+            int planValue;
+            if (!_escortPlanByRequest.TryGetValue(requestKey, out planValue))
+            {
+                return false;
+            }
+
+            WithdrawalEscortPlan plan = (WithdrawalEscortPlan)planValue;
+            WithdrawalEscortPlanDefinition definition =
+                WithdrawalEscortPlanner.GetDefinition(plan);
+
+            int relationshipApplied;
+            if (!_escortRelationshipChangeByRequest.TryGetValue(
+                    requestKey,
+                    out relationshipApplied))
+            {
+                string authorityId;
+                _authorityByRequest.TryGetValue(requestKey, out authorityId);
+                Hero authority = FindHeroByKey(authorityId);
+                if (!EnsureEscortRelationshipConsequenceApplied(
+                        mother,
+                        authority,
+                        requestKey,
+                        definition))
+                {
+                    return true;
+                }
+            }
+
+            TryExecuteStagedEscortPlan(
+                mother,
+                normalizedMonth,
+                pregnancyKey,
+                requestKey);
+            return true;
+        }
+
+        private bool TryExecuteStagedEscortPlan(
+            Hero mother,
+            int normalizedMonth,
+            string pregnancyKey,
+            string requestKey)
+        {
+            if (_escortExecutionCompletedByRequest.ContainsKey(requestKey))
+            {
+                AuthorizeApprovedWithdrawalExecution(
+                    mother,
+                    normalizedMonth,
+                    pregnancyKey,
+                    requestKey);
+                return true;
+            }
+
+            int planValue;
+            if (!_escortPlanByRequest.TryGetValue(requestKey, out planValue))
+            {
+                return false;
+            }
+
+            MobileParty party = mother != null ? mother.PartyBelongedTo : null;
+            if (party != null
+                && party.IsActive
+                && party.LeaderHero == mother
+                && (party.MapEvent != null || party.BesiegedSettlement != null))
+            {
+                DiagnosticLog.WarnOnce(
+                    "m2dfc-handoff-busy:" + requestKey,
+                    mother.Name + " has an approved withdrawal escort plan, but her"
+                    + " party is currently in a map event or siege state. The roster"
+                    + " handoff remains staged and will retry on a later safe tick.");
+                return false;
+            }
+
+            WithdrawalEscortPlan plan = (WithdrawalEscortPlan)planValue;
+            bool handoffCompleted = true;
+            if (party != null && party.IsActive && party.LeaderHero == mother)
+            {
+                handoffCompleted = TryExecuteLeaderPartyEscortHandoff(
+                    mother,
+                    party,
+                    plan,
+                    requestKey);
+            }
+            else
+            {
+                DiagnosticLog.Info(
+                    mother.Name + " approved withdrawal escort plan " + plan
+                    + " has no independently led party roster to split; 2D-F-C will"
+                    + " preserve the existing ordinary-member delayed-travel path.");
+            }
+
+            if (!handoffCompleted)
+            {
+                return false;
+            }
+
+            _escortExecutionCompletedByRequest[requestKey] = 1;
+            _lastResponsibilityByPregnancy[pregnancyKey] =
+                (int)WithdrawalResponsibility.WithdrawalApproved;
+            _lastResponsibleHeroByPregnancy.Remove(pregnancyKey);
+
+            AuthorizeApprovedWithdrawalExecution(
+                mother,
+                normalizedMonth,
+                pregnancyKey,
+                requestKey);
+            return true;
+        }
+
+        private bool TryExecuteLeaderPartyEscortHandoff(
+            Hero mother,
+            MobileParty sourceParty,
+            WithdrawalEscortPlan plan,
+            string requestKey)
+        {
+            var sourceStacks = new List<RosterStackSnapshot>();
+            var plannerStacks = new List<WithdrawalEscortTroopStack>();
+            foreach (TroopRosterElement element in sourceParty.MemberRoster.GetTroopRoster())
+            {
+                CharacterObject troop = element.Character;
+                if (troop == null || troop.IsHero || element.Number <= 0)
+                {
+                    continue;
+                }
+
+                string troopId = !string.IsNullOrWhiteSpace(troop.StringId)
+                    ? troop.StringId
+                    : troop.GetHashCode().ToString();
+                var snapshot = new RosterStackSnapshot(
+                    troop,
+                    troopId,
+                    troop.Tier,
+                    troop.Level,
+                    element.Number,
+                    element.WoundedNumber,
+                    element.Xp);
+                sourceStacks.Add(snapshot);
+                plannerStacks.Add(new WithdrawalEscortTroopStack(
+                    troopId,
+                    troop.Tier,
+                    troop.Level,
+                    element.Number));
+            }
+
+            WithdrawalEscortAllocation escortAllocation =
+                WithdrawalEscortPlanner.Calculate(plan, plannerStacks);
+            if (!escortAllocation.IsConserved)
+            {
+                DiagnosticLog.WarnOnce(
+                    "m2dfc-escort-conservation:" + requestKey,
+                    "PLE refused to execute " + mother.Name
+                    + "'s withdrawal escort because the pure escort allocation failed"
+                    + " its conservation check. No roster was changed.");
+                return false;
+            }
+
+            List<EscortRecipientRuntime> recipients =
+                GetEligibleEscortRecipients(sourceParty);
+            var capacities = new List<WithdrawalEscortRecipientCapacity>();
+            foreach (EscortRecipientRuntime recipient in recipients)
+            {
+                capacities.Add(new WithdrawalEscortRecipientCapacity(
+                    recipient.RecipientId,
+                    recipient.AvailableCapacity));
+            }
+
+            WithdrawalEscortHandoffAllocation handoff =
+                WithdrawalEscortHandoffPlanner.Calculate(
+                    escortAllocation.SurplusTroopCount,
+                    capacities);
+            if (!handoff.IsConserved)
+            {
+                DiagnosticLog.WarnOnce(
+                    "m2dfc-handoff-conservation:" + requestKey,
+                    "PLE refused to execute " + mother.Name
+                    + "'s withdrawal escort because the recipient-capacity allocation"
+                    + " failed its conservation check. No roster was changed.");
+                return false;
+            }
+
+            var recipientById = new Dictionary<string, EscortRecipientRuntime>();
+            foreach (EscortRecipientRuntime recipient in recipients)
+            {
+                recipientById[recipient.RecipientId] = recipient;
+            }
+
+            var runtimeShares = new List<EscortRecipientShareRuntime>();
+            foreach (WithdrawalEscortRecipientShare share in handoff.Recipients)
+            {
+                if (share.AssignedTroops <= 0)
+                {
+                    continue;
+                }
+
+                EscortRecipientRuntime recipient;
+                if (!recipientById.TryGetValue(share.RecipientId, out recipient))
+                {
+                    DiagnosticLog.WarnOnce(
+                        "m2dfc-recipient-missing:" + requestKey + ":" + share.RecipientId,
+                        "PLE could not resolve an escort handoff recipient after planning."
+                        + " No roster was changed.");
+                    return false;
+                }
+
+                runtimeShares.Add(new EscortRecipientShareRuntime(
+                    recipient,
+                    share.AssignedTroops));
+            }
+
+            var surplusStacks = new List<WithdrawalEscortStackAllocation>();
+            foreach (WithdrawalEscortStackAllocation stack in escortAllocation.Stacks)
+            {
+                if (stack.SurplusCount > 0)
+                {
+                    surplusStacks.Add(stack);
+                }
+            }
+            surplusStacks.Sort(CompareSurplusTransferPriority);
+
+            var sourceById = new Dictionary<string, RosterStackSnapshot>();
+            foreach (RosterStackSnapshot stack in sourceStacks)
+            {
+                sourceById[stack.TroopId] = stack;
+            }
+
+            int sourceRegularsBefore = CountOrdinaryTroops(sourceParty);
+            int recipientsBefore = 0;
+            foreach (EscortRecipientRuntime recipient in recipients)
+            {
+                recipient.RegularsBefore = CountOrdinaryTroops(recipient.Party);
+                recipientsBefore = checked(recipientsBefore + recipient.RegularsBefore);
+            }
+
+            var appliedTransfers = new List<EscortTroopTransferMutation>();
+            int totalTransferred = 0;
+            try
+            {
+                int shareIndex = 0;
+                foreach (WithdrawalEscortStackAllocation surplusStack in surplusStacks)
+                {
+                    if (totalTransferred >= handoff.TransferredTroopCount)
+                    {
+                        break;
+                    }
+
+                    RosterStackSnapshot sourceStack;
+                    if (!sourceById.TryGetValue(surplusStack.TroopId, out sourceStack))
+                    {
+                        throw new InvalidOperationException(
+                            "Could not resolve source troop stack "
+                            + surplusStack.TroopId + ".");
+                    }
+
+                    int transferTarget = Math.Min(
+                        surplusStack.SurplusCount,
+                        handoff.TransferredTroopCount - totalTransferred);
+                    int woundedToTransfer = Math.Min(
+                        sourceStack.WoundedNumber,
+                        transferTarget);
+                    int xpToTransfer = sourceStack.Number > 0
+                        ? (int)((long)sourceStack.Xp * transferTarget / sourceStack.Number)
+                        : 0;
+                    int stackRemaining = transferTarget;
+                    int woundedRemaining = woundedToTransfer;
+                    int xpRemaining = xpToTransfer;
+
+                    while (stackRemaining > 0)
+                    {
+                        while (shareIndex < runtimeShares.Count
+                            && runtimeShares[shareIndex].Remaining <= 0)
+                        {
+                            shareIndex++;
+                        }
+
+                        if (shareIndex >= runtimeShares.Count)
+                        {
+                            throw new InvalidOperationException(
+                                "Recipient shares ended before the planned handoff count.");
+                        }
+
+                        EscortRecipientShareRuntime target = runtimeShares[shareIndex];
+                        int moveCount = Math.Min(stackRemaining, target.Remaining);
+                        int moveWounded = Math.Min(woundedRemaining, moveCount);
+                        int moveXp = moveCount == stackRemaining
+                            ? xpRemaining
+                            : (int)((long)xpRemaining * moveCount / stackRemaining);
+
+                        MoveEscortTroops(
+                            sourceParty,
+                            target.Recipient.Party,
+                            sourceStack.Character,
+                            moveCount,
+                            moveWounded,
+                            moveXp);
+                        appliedTransfers.Add(new EscortTroopTransferMutation(
+                            target.Recipient.Party,
+                            sourceStack.Character,
+                            moveCount,
+                            moveWounded,
+                            moveXp));
+
+                        target.Remaining -= moveCount;
+                        stackRemaining -= moveCount;
+                        woundedRemaining -= moveWounded;
+                        xpRemaining -= moveXp;
+                        totalTransferred += moveCount;
+                    }
+                }
+
+                if (totalTransferred != handoff.TransferredTroopCount)
+                {
+                    throw new InvalidOperationException(
+                        "Executed handoff count did not match the planned handoff count.");
+                }
+
+                int sourceRegularsAfter = CountOrdinaryTroops(sourceParty);
+                int recipientsAfter = 0;
+                foreach (EscortRecipientRuntime recipient in recipients)
+                {
+                    recipientsAfter = checked(
+                        recipientsAfter + CountOrdinaryTroops(recipient.Party));
+                    if (recipient.Party.MemberRoster.TotalManCount
+                        > recipient.Party.Party.PartySizeLimit)
+                    {
+                        throw new InvalidOperationException(
+                            "Recipient party exceeded its party-size limit: "
+                            + recipient.Party.Name + ".");
+                    }
+                }
+
+                if (sourceRegularsBefore - sourceRegularsAfter != totalTransferred
+                    || recipientsAfter - recipientsBefore != totalTransferred)
+                {
+                    throw new InvalidOperationException(
+                        "Live roster conservation check failed after escort handoff.");
+                }
+
+                int expectedSourceAfter =
+                    escortAllocation.ActualEscortSize + handoff.RemainingWithMother;
+                if (sourceRegularsAfter != expectedSourceAfter)
+                {
+                    throw new InvalidOperationException(
+                        "Mother departure roster does not equal escort plus"
+                        + " untransferable surplus. Expected=" + expectedSourceAfter
+                        + ", actual=" + sourceRegularsAfter + ".");
+                }
+
+                var recipientSummary = new List<string>();
+                foreach (WithdrawalEscortRecipientShare share in handoff.Recipients)
+                {
+                    if (share.AssignedTroops > 0)
+                    {
+                        EscortRecipientRuntime recipient;
+                        recipientById.TryGetValue(share.RecipientId, out recipient);
+                        recipientSummary.Add(
+                            (recipient != null
+                                ? recipient.Party.Name.ToString()
+                                : share.RecipientId)
+                            + "=" + share.AssignedTroops);
+                    }
+                }
+
+                DiagnosticLog.Info(
+                    mother.Name + " 2D-F-C escort handoff executed: plan=" + plan
+                    + ", requested escort=" + escortAllocation.RequestedEscortSize
+                    + ", original ordinary troops=" + escortAllocation.OriginalTroopCount
+                    + ", elite escort retained=" + escortAllocation.ActualEscortSize
+                    + ", surplus identified=" + escortAllocation.SurplusTroopCount
+                    + ", transferred=" + totalTransferred
+                    + ", surplus remaining with mother=" + handoff.RemainingWithMother
+                    + ", departure ordinary troops=" + sourceRegularsAfter
+                    + ", recipients=[" + string.Join(", ", recipientSummary.ToArray())
+                    + "]. Lower-tier surplus was transferred first; heroes were not"
+                    + " counted as escort troops; wounded counts and stack XP were"
+                    + " conserved through the roster mutations.");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                bool rollbackSucceeded = RollbackEscortTransfers(
+                    sourceParty,
+                    appliedTransfers);
+                DiagnosticLog.WarnOnce(
+                    "m2dfc-handoff:" + requestKey,
+                    "Could not complete " + mother.Name
+                    + "'s withdrawal escort handoff. Applied roster mutations were"
+                    + (rollbackSucceeded
+                        ? " rolled back successfully. "
+                        : " NOT fully rolled back; inspect the roster before continuing. ")
+                    + exception.GetType().Name + ": " + exception.Message);
+                return false;
+            }
+        }
+
+        private static List<EscortRecipientRuntime> GetEligibleEscortRecipients(
+            MobileParty sourceParty)
+        {
+            var result = new List<EscortRecipientRuntime>();
+            Army army = sourceParty != null ? sourceParty.Army : null;
+            if (army == null || army.LeaderParty == null)
+            {
+                return result;
+            }
+
+            AddEscortRecipientCandidate(result, sourceParty, army.LeaderParty);
+            foreach (MobileParty attached in army.LeaderParty.AttachedParties)
+            {
+                AddEscortRecipientCandidate(result, sourceParty, attached);
+            }
+
+            result.Sort(CompareEscortRecipientRuntime);
+            return result;
+        }
+
+        private static void AddEscortRecipientCandidate(
+            List<EscortRecipientRuntime> recipients,
+            MobileParty sourceParty,
+            MobileParty candidate)
+        {
+            if (candidate == null
+                || candidate == sourceParty
+                || !candidate.IsActive
+                || candidate.Party == null
+                || candidate.MapEvent != null)
+            {
+                return;
+            }
+
+            foreach (EscortRecipientRuntime existing in recipients)
+            {
+                if (existing.Party == candidate)
+                {
+                    return;
+                }
+            }
+
+            int availableCapacity =
+                candidate.Party.PartySizeLimit - candidate.MemberRoster.TotalManCount;
+            if (availableCapacity <= 0)
+            {
+                return;
+            }
+
+            recipients.Add(new EscortRecipientRuntime(
+                candidate,
+                PartyKey(candidate),
+                availableCapacity));
+        }
+
+        private static int CompareEscortRecipientRuntime(
+            EscortRecipientRuntime left,
+            EscortRecipientRuntime right)
+        {
+            int capacity = right.AvailableCapacity.CompareTo(left.AvailableCapacity);
+            if (capacity != 0)
+            {
+                return capacity;
+            }
+
+            return string.Compare(
+                left.RecipientId,
+                right.RecipientId,
+                StringComparison.Ordinal);
+        }
+
+        private static int CompareSurplusTransferPriority(
+            WithdrawalEscortStackAllocation left,
+            WithdrawalEscortStackAllocation right)
+        {
+            int tier = left.Tier.CompareTo(right.Tier);
+            if (tier != 0)
+            {
+                return tier;
+            }
+
+            int level = left.Level.CompareTo(right.Level);
+            if (level != 0)
+            {
+                return level;
+            }
+
+            return string.Compare(
+                left.TroopId,
+                right.TroopId,
+                StringComparison.Ordinal);
+        }
+
+        private static int CountOrdinaryTroops(MobileParty party)
+        {
+            int total = 0;
+            if (party == null)
+            {
+                return total;
+            }
+
+            foreach (TroopRosterElement element in party.MemberRoster.GetTroopRoster())
+            {
+                if (element.Character != null
+                    && !element.Character.IsHero
+                    && element.Number > 0)
+                {
+                    total = checked(total + element.Number);
+                }
+            }
+
+            return total;
+        }
+
+        private static void MoveEscortTroops(
+            MobileParty source,
+            MobileParty destination,
+            CharacterObject troop,
+            int count,
+            int woundedCount,
+            int xp)
+        {
+            if (count <= 0)
+            {
+                return;
+            }
+
+            if (source.MemberRoster.GetTroopCount(troop) < count)
+            {
+                throw new InvalidOperationException(
+                    "Source roster no longer contains the planned troop count for "
+                    + troop.Name + ".");
+            }
+
+            source.MemberRoster.AddToCounts(
+                troop,
+                -count,
+                false,
+                -woundedCount,
+                -xp,
+                true);
+            try
+            {
+                destination.MemberRoster.AddToCounts(
+                    troop,
+                    count,
+                    false,
+                    woundedCount,
+                    xp,
+                    true);
+            }
+            catch
+            {
+                source.MemberRoster.AddToCounts(
+                    troop,
+                    count,
+                    false,
+                    woundedCount,
+                    xp,
+                    true);
+                throw;
+            }
+        }
+
+        private static bool RollbackEscortTransfers(
+            MobileParty sourceParty,
+            List<EscortTroopTransferMutation> transfers)
+        {
+            bool success = true;
+            for (int index = transfers.Count - 1; index >= 0; index--)
+            {
+                EscortTroopTransferMutation transfer = transfers[index];
+                try
+                {
+                    transfer.Recipient.MemberRoster.AddToCounts(
+                        transfer.Character,
+                        -transfer.Count,
+                        false,
+                        -transfer.WoundedCount,
+                        -transfer.Xp,
+                        true);
+                    sourceParty.MemberRoster.AddToCounts(
+                        transfer.Character,
+                        transfer.Count,
+                        false,
+                        transfer.WoundedCount,
+                        transfer.Xp,
+                        true);
+                }
+                catch
+                {
+                    success = false;
+                }
+            }
+
+            return success;
         }
 
         private MultiSelectionInquiryData CreatePregnantPlayerInquiry(
@@ -1274,6 +1980,12 @@ namespace PregnantLordsExpanded.Campaign
             RemoveKeysWithPrefix(_decisionByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(_finalDecisionByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(_escortPlanByRequest, pregnancyKey + "|");
+            RemoveKeysWithPrefix(
+                _escortRelationshipChangeByRequest,
+                pregnancyKey + "|");
+            RemoveKeysWithPrefix(
+                _escortExecutionCompletedByRequest,
+                pregnancyKey + "|");
             RemoveKeysWithPrefix(_authorityByRequest, pregnancyKey + "|");
             RemoveKeysWithPrefix(
                 _liabilityByPregnancyAndAuthority,
@@ -1284,6 +1996,52 @@ namespace PregnantLordsExpanded.Campaign
             RemoveKeysWithPrefix(
                 _appliedRoutineDenialPenaltyByPregnancyAndMonth,
                 pregnancyKey + "|");
+        }
+
+        private static int ApplyExactEscortRelationshipChange(
+            Hero originalHero,
+            Hero originalGainedRelationWith,
+            int requestedChange)
+        {
+            if (requestedChange == 0)
+            {
+                return 0;
+            }
+
+            Hero effectiveHero;
+            Hero effectiveGainedRelationWith;
+            TaleWorlds.CampaignSystem.Campaign.Current.Models.DiplomacyModel.GetHeroesForEffectiveRelation(
+                originalHero,
+                originalGainedRelationWith,
+                out effectiveHero,
+                out effectiveGainedRelationWith);
+
+            int before = CharacterRelationManager.GetHeroRelation(
+                effectiveHero,
+                effectiveGainedRelationWith);
+            int target = Math.Max(
+                TaleWorlds.CampaignSystem.Campaign.Current.Models.DiplomacyModel.MinRelationLimit,
+                Math.Min(
+                    TaleWorlds.CampaignSystem.Campaign.Current.Models.DiplomacyModel.MaxRelationLimit,
+                    before + requestedChange));
+            int actualChange = target - before;
+
+            if (actualChange != 0)
+            {
+                effectiveHero.SetPersonalRelation(
+                    effectiveGainedRelationWith,
+                    target);
+                CampaignEventDispatcher.Instance.OnHeroRelationChanged(
+                    effectiveHero,
+                    effectiveGainedRelationWith,
+                    actualChange,
+                    false,
+                    ChangeRelationAction.ChangeRelationDetail.Default,
+                    originalHero,
+                    originalGainedRelationWith);
+            }
+
+            return actualChange;
         }
 
         private static bool TryApplyCommanderRelationshipPenalty(
@@ -2091,6 +2849,10 @@ namespace PregnantLordsExpanded.Campaign
                 ?? new Dictionary<string, string>();
             _escortPlanByRequest = _escortPlanByRequest
                 ?? new Dictionary<string, int>();
+            _escortRelationshipChangeByRequest = _escortRelationshipChangeByRequest
+                ?? new Dictionary<string, int>();
+            _escortExecutionCompletedByRequest = _escortExecutionCompletedByRequest
+                ?? new Dictionary<string, int>();
         }
 
         private static void RemoveKeysWithPrefix<T>(
@@ -2110,6 +2872,37 @@ namespace PregnantLordsExpanded.Campaign
             {
                 dictionary.Remove(key);
             }
+        }
+
+        private static Hero FindHeroByKey(string heroId)
+        {
+            if (string.IsNullOrWhiteSpace(heroId))
+            {
+                return null;
+            }
+
+            if (Hero.MainHero != null
+                && string.Equals(
+                    HeroKey(Hero.MainHero),
+                    heroId,
+                    StringComparison.Ordinal))
+            {
+                return Hero.MainHero;
+            }
+
+            return Hero.FindFirst(hero =>
+                hero != null
+                && string.Equals(HeroKey(hero), heroId, StringComparison.Ordinal));
+        }
+
+        private static string PartyKey(MobileParty party)
+        {
+            if (party != null && !string.IsNullOrWhiteSpace(party.StringId))
+            {
+                return party.StringId;
+            }
+
+            return party != null ? party.GetHashCode().ToString() : string.Empty;
         }
 
         private static string HeroKeyOrEmpty(Hero hero)
@@ -2138,6 +2931,90 @@ namespace PregnantLordsExpanded.Campaign
             }
 
             return hero != null ? hero.GetHashCode().ToString() : string.Empty;
+        }
+
+        private sealed class RosterStackSnapshot
+        {
+            public RosterStackSnapshot(
+                CharacterObject character,
+                string troopId,
+                int tier,
+                int level,
+                int number,
+                int woundedNumber,
+                int xp)
+            {
+                Character = character;
+                TroopId = troopId;
+                Tier = tier;
+                Level = level;
+                Number = number;
+                WoundedNumber = woundedNumber;
+                Xp = xp;
+            }
+
+            public CharacterObject Character { get; }
+            public string TroopId { get; }
+            public int Tier { get; }
+            public int Level { get; }
+            public int Number { get; }
+            public int WoundedNumber { get; }
+            public int Xp { get; }
+        }
+
+        private sealed class EscortRecipientRuntime
+        {
+            public EscortRecipientRuntime(
+                MobileParty party,
+                string recipientId,
+                int availableCapacity)
+            {
+                Party = party;
+                RecipientId = recipientId;
+                AvailableCapacity = availableCapacity;
+            }
+
+            public MobileParty Party { get; }
+            public string RecipientId { get; }
+            public int AvailableCapacity { get; }
+            public int RegularsBefore { get; set; }
+        }
+
+        private sealed class EscortRecipientShareRuntime
+        {
+            public EscortRecipientShareRuntime(
+                EscortRecipientRuntime recipient,
+                int remaining)
+            {
+                Recipient = recipient;
+                Remaining = remaining;
+            }
+
+            public EscortRecipientRuntime Recipient { get; }
+            public int Remaining { get; set; }
+        }
+
+        private sealed class EscortTroopTransferMutation
+        {
+            public EscortTroopTransferMutation(
+                MobileParty recipient,
+                CharacterObject character,
+                int count,
+                int woundedCount,
+                int xp)
+            {
+                Recipient = recipient;
+                Character = character;
+                Count = count;
+                WoundedCount = woundedCount;
+                Xp = xp;
+            }
+
+            public MobileParty Recipient { get; }
+            public CharacterObject Character { get; }
+            public int Count { get; }
+            public int WoundedCount { get; }
+            public int Xp { get; }
         }
 
         private sealed class PlayerPromptRequest
