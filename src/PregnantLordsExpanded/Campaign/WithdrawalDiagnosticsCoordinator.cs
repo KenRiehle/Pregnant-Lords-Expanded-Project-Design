@@ -23,8 +23,9 @@ namespace PregnantLordsExpanded.Campaign
     /// a safe friendly fortification, and then uses Bannerlord's disband-to-fortification
     /// lifecycle so troops, wounded troops, XP, prisoners, and living heroes are resolved
     /// natively. Execution state and destination are persisted so save/load cannot start
-    /// the same trip twice. Player-character automatic movement remains deferred, and the
-    /// graduated battle-risk calculator is still not invoked by a campaign hook.
+    /// the same trip twice. Player-character automatic movement remains deferred. Combat pregnancy-loss
+    /// responsibility queries are exposed to the campaign behavior so combat outcomes can
+    /// preserve the existing withdrawal accountability ledger.
     /// </summary>
     internal sealed class WithdrawalDiagnosticsCoordinator
     {
@@ -192,6 +193,35 @@ namespace PregnantLordsExpanded.Campaign
             return PregnancyServiceRestrictionCalculator.ShouldRestrict(
                 (ApprovedWithdrawalExecutionState)executionState,
                 mother.IsPregnant);
+        }
+
+        public WithdrawalResponsibility GetCurrentResponsibility(Hero mother)
+        {
+            if (mother == null)
+            {
+                return WithdrawalResponsibility.None;
+            }
+
+            string pregnancyKey;
+            if (!_activePregnancyByMother.TryGetValue(
+                    HeroKey(mother),
+                    out pregnancyKey))
+            {
+                return WithdrawalResponsibility.None;
+            }
+
+            int responsibility;
+            if (!_lastResponsibilityByPregnancy.TryGetValue(
+                    pregnancyKey,
+                    out responsibility)
+                || !System.Enum.IsDefined(
+                    typeof(WithdrawalResponsibility),
+                    responsibility))
+            {
+                return WithdrawalResponsibility.None;
+            }
+
+            return (WithdrawalResponsibility)responsibility;
         }
 
         public void OnRestrictedPartyJoinedArmy(MobileParty party)

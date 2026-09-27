@@ -28,6 +28,10 @@
              Link="Withdrawal\PlayerWithdrawalDecisionCalculator.cs" />
     <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\PregnancyBattleRiskCalculator.cs"
              Link="Withdrawal\PregnancyBattleRiskCalculator.cs" />
+    <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\CombatPregnancyLossSettings.cs"
+             Link="Withdrawal\CombatPregnancyLossSettings.cs" />
+    <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\CombatPregnancyLossCalculator.cs"
+             Link="Withdrawal\CombatPregnancyLossCalculator.cs" />
     <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\ApprovedWithdrawalExecutionCalculator.cs"
              Link="Withdrawal\ApprovedWithdrawalExecutionCalculator.cs" />
     <Compile Include="..\..\src\PregnantLordsExpanded\Withdrawal\WithdrawalEscortPlanner.cs"

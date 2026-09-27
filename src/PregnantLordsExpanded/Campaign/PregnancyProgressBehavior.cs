@@ -1,22 +1,24 @@
 using System.Collections.Generic;
+using System.Globalization;
 using PregnantLordsExpanded.Diagnostics;
 using PregnantLordsExpanded.Integrations;
 using PregnantLordsExpanded.Pregnancy;
+using PregnantLordsExpanded.Withdrawal;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Actions;
+using TaleWorlds.CampaignSystem.MapEvents;
 using TaleWorlds.CampaignSystem.Party;
+using TaleWorlds.Core;
 using TaleWorlds.Library;
 
 namespace PregnantLordsExpanded.Campaign
 {
     /// <summary>
-    /// Pregnancy observation and Milestone 2 withdrawal behavior. Milestone 2D-E-03e keeps
-    /// the monthly denial ledger from 2D-D and executes approved NPC withdrawal travel.
-    /// Ordinary NPC party members use native delayed hero travel; NPC party leaders keep
-    /// their party, leave the army, travel physically to protection, and retire through
-    /// Bannerlord's native disband-to-fortification path on arrival. Automatic player-
-    /// character movement remains deferred. The tested battle-risk calculator still has
-    /// no campaign hook and no pregnancy-loss roll is active.
+    /// Pregnancy observation and Milestone 2 withdrawal behavior. Approved NPC withdrawal
+    /// travel and service restrictions remain intact. Combat pregnancy-loss evaluation is
+    /// now staged from Bannerlord's HeroWounded event and resolved only after the owning
+    /// map event ends, keeping pregnancy-ledger mutation out of mission casualty handling.
+    /// The locked default risks are 5% in months 3-6, 15% in months 7-8, and 35% in month 9.
     /// </summary>
     public sealed class PregnancyProgressBehavior : CampaignBehaviorBase
     {
@@ -24,6 +26,8 @@ namespace PregnantLordsExpanded.Campaign
             new Dictionary<string, int>();
         private readonly WithdrawalDiagnosticsCoordinator _withdrawalDiagnostics =
             new WithdrawalDiagnosticsCoordinator();
+        private readonly Dictionary<Hero, MapEvent> _pendingCombatPregnancyWounds =
+            new Dictionary<Hero, MapEvent>();
 
         public override void RegisterEvents()
         {
@@ -32,6 +36,8 @@ namespace PregnantLordsExpanded.Campaign
             CampaignEvents.OnGivenBirthEvent.AddNonSerializedListener(this, OnGivenBirth);
             CampaignEvents.DailyTickHeroEvent.AddNonSerializedListener(this, OnDailyTickHero);
             CampaignEvents.HeroKilledEvent.AddNonSerializedListener(this, OnHeroKilled);
+            CampaignEvents.HeroWounded.AddNonSerializedListener(this, OnHeroWounded);
+            CampaignEvents.MapEventEnded.AddNonSerializedListener(this, OnMapEventEnded);
             CampaignEvents.CanHeroLeadPartyEvent.AddNonSerializedListener(
                 this,
                 new ReferenceAction<Hero, bool>(OnCanHeroLeadParty));
@@ -53,10 +59,11 @@ namespace PregnantLordsExpanded.Campaign
         private void OnGameLoadFinished()
         {
             _lastObservedState.Clear();
+            _pendingCombatPregnancyWounds.Clear();
             _withdrawalDiagnostics.ResetSessionPrompts();
             InformationManager.DisplayMessage(
                 new InformationMessage(
-                    "Pregnant Lords Expanded: Milestone 2D-E-03e loaded - approved withdrawal service restriction, ghost-attachment cleanup, PLE-only leader-army cleanup, safe hourly arrival retirement, and party-leader travel are active."));
+                    "Pregnant Lords Expanded: combat pregnancy-loss staging is active with default 5% / 15% / 35% month-based risk; approved withdrawal travel and service restrictions remain active."));
 
             foreach (Hero hero in Hero.AllAliveHeroes)
             {
@@ -93,8 +100,204 @@ namespace PregnantLordsExpanded.Campaign
             KillCharacterAction.KillCharacterActionDetail detail,
             bool showNotification)
         {
+            if (victim != null)
+            {
+                _pendingCombatPregnancyWounds.Remove(victim);
+            }
+
             _withdrawalDiagnostics.Close(victim, "maternal death: " + detail);
             Forget(victim);
+        }
+
+        private void OnHeroWounded(Hero woundedHero)
+        {
+            if (woundedHero == null || !woundedHero.IsFemale || !woundedHero.IsPregnant)
+            {
+                return;
+            }
+
+            MobileParty party = woundedHero.PartyBelongedTo;
+            MapEvent mapEvent = party != null ? party.Party.MapEvent : null;
+            if (mapEvent == null || mapEvent.EventType == MapEvent.BattleTypes.None)
+            {
+                return;
+            }
+
+            _pendingCombatPregnancyWounds[woundedHero] = mapEvent;
+
+            DiagnosticLog.Info(
+                woundedHero.Name
+                + " sustained a qualifying combat wound while pregnant; PLE staged"
+                + " one pregnancy-loss evaluation for map event " + mapEvent.EventType + ".");
+        }
+
+        private void OnMapEventEnded(MapEvent mapEvent)
+        {
+            if (mapEvent == null || _pendingCombatPregnancyWounds.Count == 0)
+            {
+                return;
+            }
+
+            List<Hero> mothersToEvaluate = new List<Hero>();
+            foreach (KeyValuePair<Hero, MapEvent> pending in _pendingCombatPregnancyWounds)
+            {
+                if (pending.Value == mapEvent)
+                {
+                    mothersToEvaluate.Add(pending.Key);
+                }
+            }
+
+            for (int index = 0; index < mothersToEvaluate.Count; index++)
+            {
+                Hero mother = mothersToEvaluate[index];
+                _pendingCombatPregnancyWounds.Remove(mother);
+                EvaluateCombatPregnancyLoss(mother, mapEvent);
+            }
+        }
+
+        private void EvaluateCombatPregnancyLoss(Hero mother, MapEvent mapEvent)
+        {
+            if (mother == null || !mother.IsAlive || !mother.IsPregnant)
+            {
+                return;
+            }
+
+            PregnancyProgressResult progress = PregnancyProgressService.Instance.GetProgress(mother);
+            if (!progress.IsPregnant || !progress.HasKnownProgress)
+            {
+                DiagnosticLog.WarnOnce(
+                    "combat-loss-unknown-progress:" + HeroKey(mother),
+                    mother.Name
+                    + " was wounded in combat while pregnant, but PLE could not resolve"
+                    + " a normalized pregnancy month; no pregnancy-loss roll was made.");
+                return;
+            }
+
+            CombatPregnancyLossSettings settings =
+                CombatPregnancyLossRuntimeSettings.Snapshot();
+            CombatPregnancyNativeProtection nativeProtection =
+                GetNativeCombatPregnancyProtection(mother);
+
+            CombatPregnancyLossResult result = CombatPregnancyLossCalculator.Calculate(
+                settings,
+                new CombatPregnancyLossInput
+                {
+                    IsPregnant = mother.IsPregnant,
+                    QualifyingCombatWound = true,
+                    BirthAndAgingEnabled = !CampaignOptions.IsLifeDeathCycleDisabled,
+                    NormalizedMonth = progress.ApproximateMonth,
+                    NativeProtection = nativeProtection
+                });
+
+            WithdrawalResponsibility responsibility =
+                _withdrawalDiagnostics.GetCurrentResponsibility(mother);
+
+            if (!result.ShouldRoll)
+            {
+                DiagnosticLog.Info(
+                    "PLE combat pregnancy-loss evaluation: mother=" + mother.Name
+                    + ", month=" + progress.ApproximateMonth
+                    + ", battleType=" + mapEvent.EventType
+                    + ", baseRisk=" + FormatPercent(result.BaseRiskPercent)
+                    + ", effectiveRisk=" + FormatPercent(result.EffectiveRiskPercent)
+                    + ", combatLossEnabled=" + settings.EnableCombatPregnancyLoss
+                    + ", respectNative=" + settings.RespectBannerlordBattleDeathSettings
+                    + ", birthAndAging=" + (!CampaignOptions.IsLifeDeathCycleDisabled)
+                    + ", heroBattleDeath=" + CampaignOptions.BattleDeath
+                    + ", clanMemberBattleDeath=" + CampaignOptions.ClanMemberDeathChance
+                    + ", nativeProtection=" + nativeProtection
+                    + ", responsibility=" + responsibility
+                    + ", result=Suppressed, reason=" + result.SuppressionReason);
+                return;
+            }
+
+            double roll = MBRandom.RandomFloat * 100.0;
+            bool pregnancyLost = result.IsPregnancyLossRoll(roll);
+
+            DiagnosticLog.Info(
+                "PLE combat pregnancy-loss roll: mother=" + mother.Name
+                + ", month=" + progress.ApproximateMonth
+                + ", battleType=" + mapEvent.EventType
+                + ", baseRisk=" + FormatPercent(result.BaseRiskPercent)
+                + ", effectiveRisk=" + FormatPercent(result.EffectiveRiskPercent)
+                + ", combatLossEnabled=" + settings.EnableCombatPregnancyLoss
+                + ", respectNative=" + settings.RespectBannerlordBattleDeathSettings
+                + ", birthAndAging=" + (!CampaignOptions.IsLifeDeathCycleDisabled)
+                + ", heroBattleDeath=" + CampaignOptions.BattleDeath
+                + ", clanMemberBattleDeath=" + CampaignOptions.ClanMemberDeathChance
+                + ", nativeProtection=" + nativeProtection
+                + ", wounded=True"
+                + ", responsibility=" + responsibility
+                + ", roll=" + FormatPercent(roll)
+                + ", result=" + (pregnancyLost ? "Loss" : "Preserved") + ".");
+
+            if (!pregnancyLost)
+            {
+                return;
+            }
+
+            string failureReason;
+            if (!NativePregnancyLossService.TryEndPregnancy(mother, out failureReason))
+            {
+                DiagnosticLog.WarnOnce(
+                    "combat-loss-native-failure:" + HeroKey(mother),
+                    "PLE rolled a combat pregnancy loss for " + mother.Name
+                    + " but did not alter the pregnancy because the native pregnancy"
+                    + " record could not be removed safely: " + failureReason + ".");
+                return;
+            }
+
+            string playerMessage = progress.ApproximateMonth >= 9
+                ? mother.Name + " has lost the child after being critically wounded in battle."
+                : mother.Name + " has suffered a pregnancy loss after being critically wounded in battle.";
+            InformationManager.DisplayMessage(new InformationMessage(playerMessage));
+
+            DiagnosticLog.Info(
+                mother.Name + " combat pregnancy loss completed at normalized month "
+                + progress.ApproximateMonth + "; responsibility=" + responsibility
+                + ". Native pregnancy record removed and Hero.IsPregnant cleared.");
+
+            _withdrawalDiagnostics.Close(
+                mother,
+                "combat pregnancy loss; responsibility=" + responsibility);
+            Forget(mother);
+        }
+
+        private static CombatPregnancyNativeProtection GetNativeCombatPregnancyProtection(
+            Hero mother)
+        {
+            if (CampaignOptions.BattleDeath == CampaignOptions.Difficulty.VeryEasy)
+            {
+                return CombatPregnancyNativeProtection.Disabled;
+            }
+
+            if (mother == Hero.MainHero
+                && CampaignOptions.BattleDeath == CampaignOptions.Difficulty.Easy)
+            {
+                return CombatPregnancyNativeProtection.Disabled;
+            }
+
+            if (mother != null && mother.Clan == Clan.PlayerClan)
+            {
+                if (CampaignOptions.ClanMemberDeathChance
+                    == CampaignOptions.Difficulty.VeryEasy)
+                {
+                    return CombatPregnancyNativeProtection.Disabled;
+                }
+
+                if (CampaignOptions.ClanMemberDeathChance
+                    == CampaignOptions.Difficulty.Easy)
+                {
+                    return CombatPregnancyNativeProtection.ReducedByHalf;
+                }
+            }
+
+            return CombatPregnancyNativeProtection.Normal;
+        }
+
+        private static string FormatPercent(double value)
+        {
+            return value.ToString("0.##", CultureInfo.InvariantCulture) + "%";
         }
 
         private void OnCanHeroLeadParty(Hero hero, ref bool result)

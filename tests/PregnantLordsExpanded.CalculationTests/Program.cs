@@ -54,6 +54,10 @@ namespace PregnantLordsExpanded.CalculationTests
 
             Console.WriteLine("All Milestone 2D-C graduated consequence tests passed.");
 
+            TestCombatPregnancyLossSettings();
+
+            Console.WriteLine("All combat pregnancy-loss configuration tests passed.");
+
             TestMonthlyDenialResentment();
 
             Console.WriteLine("All Milestone 2D-D monthly denial resentment tests passed.");
@@ -597,6 +601,118 @@ namespace PregnantLordsExpanded.CalculationTests
                     HealthAfterBattlePercent = healthAfter,
                     Responsibility = responsibility
                 });
+        }
+
+        private static void TestCombatPregnancyLossSettings()
+        {
+            CombatPregnancyLossSettings defaults = CombatPregnancyLossSettings.Default;
+
+            AssertEqual(5.0, defaults.GetBaseRiskPercent(3),
+                "month three default combat pregnancy-loss risk");
+            AssertEqual(5.0, defaults.GetBaseRiskPercent(6),
+                "month six default combat pregnancy-loss risk");
+            AssertEqual(15.0, defaults.GetBaseRiskPercent(7),
+                "month seven default combat pregnancy-loss risk");
+            AssertEqual(15.0, defaults.GetBaseRiskPercent(8),
+                "month eight default combat pregnancy-loss risk");
+            AssertEqual(35.0, defaults.GetBaseRiskPercent(9),
+                "month nine default combat pregnancy-loss risk");
+            AssertEqual(0.0, defaults.GetBaseRiskPercent(2),
+                "month two has no combat pregnancy-loss roll");
+
+            CombatPregnancyLossResult realistic = CombatPregnancyLossCalculator.Calculate(
+                defaults,
+                CreateCombatLossInput(9, CombatPregnancyNativeProtection.Normal));
+            AssertEqual(true, realistic.ShouldRoll,
+                "realistic native settings permit combat pregnancy-loss roll");
+            AssertEqual(35.0, realistic.EffectiveRiskPercent,
+                "realistic native settings preserve month-nine risk");
+
+            CombatPregnancyLossResult reduced = CombatPregnancyLossCalculator.Calculate(
+                defaults,
+                CreateCombatLossInput(9, CombatPregnancyNativeProtection.ReducedByHalf));
+            AssertEqual(true, reduced.ShouldRoll,
+                "reduced native setting still permits a roll");
+            AssertEqual(17.5, reduced.EffectiveRiskPercent,
+                "reduced native setting halves month-nine risk");
+
+            CombatPregnancyLossResult protectedMother = CombatPregnancyLossCalculator.Calculate(
+                defaults,
+                CreateCombatLossInput(9, CombatPregnancyNativeProtection.Disabled));
+            AssertEqual(false, protectedMother.ShouldRoll,
+                "native full death protection suppresses loss when respected");
+            AssertEqual(0.0, protectedMother.EffectiveRiskPercent,
+                "native full protection produces zero effective risk");
+
+            var independentPle = new CombatPregnancyLossSettings(
+                true,
+                false,
+                5.0,
+                15.0,
+                35.0);
+            CombatPregnancyLossResult independent = CombatPregnancyLossCalculator.Calculate(
+                independentPle,
+                CreateCombatLossInput(9, CombatPregnancyNativeProtection.Disabled));
+            AssertEqual(true, independent.ShouldRoll,
+                "PLE can decouple pregnancy risk from mother death protection");
+            AssertEqual(35.0, independent.EffectiveRiskPercent,
+                "decoupled PLE uses configured month-nine risk");
+
+            var disabledPle = new CombatPregnancyLossSettings(
+                false,
+                true,
+                5.0,
+                15.0,
+                35.0);
+            CombatPregnancyLossResult masterOff = CombatPregnancyLossCalculator.Calculate(
+                disabledPle,
+                CreateCombatLossInput(9, CombatPregnancyNativeProtection.Normal));
+            AssertEqual(false, masterOff.ShouldRoll,
+                "master combat pregnancy-loss toggle suppresses roll");
+
+            CombatPregnancyLossInput birthAgingOff =
+                CreateCombatLossInput(9, CombatPregnancyNativeProtection.Normal);
+            birthAgingOff.BirthAndAgingEnabled = false;
+            CombatPregnancyLossResult noLifeCycle = CombatPregnancyLossCalculator.Calculate(
+                defaults,
+                birthAgingOff);
+            AssertEqual(false, noLifeCycle.ShouldRoll,
+                "Birth and Aging off is a hard stop");
+
+            CombatPregnancyLossInput noWound =
+                CreateCombatLossInput(9, CombatPregnancyNativeProtection.Normal);
+            noWound.QualifyingCombatWound = false;
+            CombatPregnancyLossResult unhurt = CombatPregnancyLossCalculator.Calculate(
+                defaults,
+                noWound);
+            AssertEqual(false, unhurt.ShouldRoll,
+                "battle participation without qualifying wound does not roll");
+
+            AssertEqual(true, realistic.IsPregnancyLossRoll(34.999),
+                "roll below configured chance loses pregnancy");
+            AssertEqual(false, realistic.IsPregnancyLossRoll(35.0),
+                "roll at configured chance preserves pregnancy");
+
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => new CombatPregnancyLossSettings(true, true, -1.0, 15.0, 35.0),
+                "combat pregnancy-loss settings reject negative risk");
+            AssertThrows<ArgumentOutOfRangeException>(
+                () => new CombatPregnancyLossSettings(true, true, 5.0, 15.0, 101.0),
+                "combat pregnancy-loss settings reject risk above one hundred");
+        }
+
+        private static CombatPregnancyLossInput CreateCombatLossInput(
+            int normalizedMonth,
+            CombatPregnancyNativeProtection nativeProtection)
+        {
+            return new CombatPregnancyLossInput
+            {
+                IsPregnant = true,
+                QualifyingCombatWound = true,
+                BirthAndAgingEnabled = true,
+                NormalizedMonth = normalizedMonth,
+                NativeProtection = nativeProtection
+            };
         }
 
         private static void TestPlayerWithdrawalDecisions()
