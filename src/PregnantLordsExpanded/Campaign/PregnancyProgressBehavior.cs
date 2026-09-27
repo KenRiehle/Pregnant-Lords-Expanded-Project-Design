@@ -247,10 +247,23 @@ namespace PregnantLordsExpanded.Campaign
                 return;
             }
 
-            string playerMessage = progress.ApproximateMonth >= 9
-                ? mother.Name + " has lost the child after being critically wounded in battle."
-                : mother.Name + " has suffered a pregnancy loss after being critically wounded in battle.";
-            InformationManager.DisplayMessage(new InformationMessage(playerMessage));
+            Hero responsibleHero =
+                _withdrawalDiagnostics.GetCurrentResponsibleHero(mother);
+            string noticeDescription;
+            string noticeSuppressionReason;
+            bool noticeAdded = PregnancyLossNotificationService.TryShowCombatLossNotice(
+                mother,
+                responsibleHero,
+                responsibility,
+                out noticeDescription,
+                out noticeSuppressionReason);
+
+            if (!noticeAdded)
+            {
+                DiagnosticLog.Info(
+                    "PLE pregnancy-loss map notice suppressed for " + mother.Name
+                    + ": " + noticeSuppressionReason + ".");
+            }
 
             DiagnosticLog.Info(
                 mother.Name + " combat pregnancy loss completed at normalized month "

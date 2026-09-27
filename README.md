@@ -18,3 +18,6 @@ Build 04 adds the combat pregnancy-loss mechanics test pass:
 The visible MCM controls/sliders are **not** added yet. The runtime settings bridge is intentionally present now so the validated mechanic can be bound to MCM after live testing.
 
 See `docs/MILESTONE_2D-F_C_COMBAT_PREGNANCY_LOSS_BUILD_04_NOTES.md` for the test plan and expected log lines.
+
+## Build 04c test overlay
+Adds the native right-side pregnancy-loss map notification. See `README_04C_TEST.md`.

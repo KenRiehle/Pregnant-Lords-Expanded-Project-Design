@@ -224,6 +224,32 @@ namespace PregnantLordsExpanded.Campaign
             return (WithdrawalResponsibility)responsibility;
         }
 
+        public Hero GetCurrentResponsibleHero(Hero mother)
+        {
+            if (mother == null)
+            {
+                return null;
+            }
+
+            string pregnancyKey;
+            if (!_activePregnancyByMother.TryGetValue(
+                    HeroKey(mother),
+                    out pregnancyKey))
+            {
+                return null;
+            }
+
+            string responsibleHeroId;
+            if (!_lastResponsibleHeroByPregnancy.TryGetValue(
+                    pregnancyKey,
+                    out responsibleHeroId))
+            {
+                return null;
+            }
+
+            return FindHeroByKey(responsibleHeroId);
+        }
+
         public void OnRestrictedPartyJoinedArmy(MobileParty party)
         {
             if (party == null || !party.IsActive || party.Army == null)
