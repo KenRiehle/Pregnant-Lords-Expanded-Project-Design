@@ -21,3 +21,14 @@ See `docs/MILESTONE_2D-F_C_COMBAT_PREGNANCY_LOSS_BUILD_04_NOTES.md` for the test
 
 ## Build 04c test overlay
 Adds the native right-side pregnancy-loss map notification. See `README_04C_TEST.md`.
+
+## Build 04e — monthly pregnant-prisoner petitions
+
+04e supersedes the manual prisoner-dialogue experiment in 04d/04d2. Pregnant prisoners now request an audience automatically once per unresolved normalized pregnancy month while held by the player/player clan. Refusal applies -2 relation once for that month; Chivalric Maternal Release uses Bannerlord's native release action. See `README_04E_MONTHLY_PRISONER_PETITIONS.md`.
+
+## Build 04e1 — compile fix
+Adds the Bannerlord 1.5.3 five-argument `HeroPrisonerReleased` event handler signature. No gameplay logic changes.
+
+## Build 04e2 — Personality-driven pregnant-prisoner petitions
+
+Build 04e2 preserves the validated monthly petition/release/refusal mechanics from 04e1 and adds deterministic personality-based petition wording, title-aware honorifics, and save-persistent refusal escalation. Escort allocation/travel remains intentionally deferred to the next isolated build. See `README_04E2_PERSONALITY_PETITIONS.md`.
