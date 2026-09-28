@@ -11,6 +11,7 @@ using TaleWorlds.CampaignSystem.MapEvents;
 using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.Core;
 using TaleWorlds.Library;
+using TaleWorlds.Localization;
 
 namespace PregnantLordsExpanded.Campaign
 {
@@ -298,11 +299,10 @@ namespace PregnantLordsExpanded.Campaign
                 string text = prisoner.Name
                     + " has requested an audience concerning her continued imprisonment."
                     + "\n\n\"" + spokenRequest + "\""
-                    + "\n\nShe is in normalized pregnancy month " + normalizedMonth
-                    + ". Refusing this month's petition will reduce her relation with you by "
+                    + "\n\n" + GetPlayerFacingPregnancyMonthText(normalizedMonth)
+                    + " Refusing her request will reduce her relation with you by "
                     + (-PregnantPrisonerRefusalRelationChange)
-                    + ". If she remains imprisoned, she may petition again in a later"
-                    + " normalized pregnancy month.";
+                    + ". If she remains imprisoned, she may petition again next month.";
 
                 List<InquiryElement> choices = new List<InquiryElement>
                 {
@@ -319,8 +319,8 @@ namespace PregnantLordsExpanded.Campaign
                             + PregnantPrisonerRefusalRelationChange + " relation)",
                         null,
                         true,
-                        "Refuse this month's request. The relation loss is applied once for"
-                            + " this normalized pregnancy month and will not duplicate after reload.")
+                        "Refuse her request. The relation loss is applied once for this"
+                            + " pregnancy month and will not duplicate after reload.")
                 };
 
                 MultiSelectionInquiryData inquiry = new MultiSelectionInquiryData(
@@ -372,6 +372,33 @@ namespace PregnantLordsExpanded.Campaign
                     "PLE could not display " + prisoner.Name
                         + "'s pregnant-prisoner petition. It remains pending and will retry. "
                         + exception.GetType().Name + ": " + exception.Message);
+            }
+        }
+
+        private static string GetPlayerFacingPregnancyMonthText(int normalizedMonth)
+        {
+            switch (normalizedMonth)
+            {
+                case 1:
+                    return "She is in the first month of her pregnancy.";
+                case 2:
+                    return "She is two months pregnant.";
+                case 3:
+                    return "She is three months pregnant.";
+                case 4:
+                    return "She is four months pregnant.";
+                case 5:
+                    return "She is five months pregnant.";
+                case 6:
+                    return "She is six months pregnant.";
+                case 7:
+                    return "She is seven months pregnant.";
+                case 8:
+                    return "She is eight months pregnant.";
+                case 9:
+                    return "She is in the final month of her pregnancy.";
+                default:
+                    return "She is pregnant.";
             }
         }
 
@@ -821,14 +848,92 @@ namespace PregnantLordsExpanded.Campaign
             KillCharacterAction.KillCharacterActionDetail detail,
             bool showNotification)
         {
+            bool wasPregnantAtDeath = victim != null && victim.IsFemale && victim.IsPregnant;
+
             if (victim != null)
             {
                 _pendingCombatPregnancyWounds.Remove(victim);
             }
 
+            if (wasPregnantAtDeath)
+            {
+                PreservePregnancyInDeathRecord(victim, killer, detail);
+
+                // Bannerlord removes the native pregnancy ledger entry when a pregnant
+                // hero dies, but it does not clear Hero.IsPregnant in the tested 1.5.3
+                // build. Clear the active flag so a deceased woman is not still shown
+                // with the Pregnant status in the Encyclopedia.
+                victim.IsPregnant = false;
+
+                DiagnosticLog.Info(
+                    "PLE maternal-death pregnancy cleanup: mother=" + victim.Name
+                    + ", detail=" + detail
+                    + ", killer=" + (killer != null ? killer.Name.ToString() : "<none>")
+                    + ", historicalRecordPreserved=True, activePregnancyCleared=True.");
+            }
+
             _withdrawalDiagnostics.Close(victim, "maternal death: " + detail);
             ClearPregnantPrisonerState(victim);
             Forget(victim);
+        }
+
+        private static void PreservePregnancyInDeathRecord(
+            Hero victim,
+            Hero killer,
+            KillCharacterAction.KillCharacterActionDetail detail)
+        {
+            if (victim == null)
+            {
+                return;
+            }
+
+            string victimName = victim.Name != null ? victim.Name.ToString() : "She";
+            string killerName = killer != null && killer.Name != null
+                ? killer.Name.ToString()
+                : null;
+
+            string recordLine;
+            switch (detail)
+            {
+                case KillCharacterAction.KillCharacterActionDetail.Executed:
+                    recordLine = killerName != null
+                        ? victimName + " was executed while with child by " + killerName + "."
+                        : victimName + " was executed while with child.";
+                    break;
+
+                case KillCharacterAction.KillCharacterActionDetail.Murdered:
+                    recordLine = killerName != null
+                        ? victimName + " was murdered while with child by " + killerName + "."
+                        : victimName + " was murdered while with child.";
+                    break;
+
+                case KillCharacterAction.KillCharacterActionDetail.DiedInBattle:
+                    recordLine = killerName != null
+                        ? victimName + " was killed in battle while with child by " + killerName + "."
+                        : victimName + " was killed in battle while with child.";
+                    break;
+
+                case KillCharacterAction.KillCharacterActionDetail.WoundedInBattle:
+                    recordLine = victimName + " died from battle wounds while with child.";
+                    break;
+
+                case KillCharacterAction.KillCharacterActionDetail.DiedInLabor:
+                    // Childbirth has its own native historical wording. Do not append a
+                    // redundant "while with child" sentence to that special case.
+                    return;
+
+                default:
+                    recordLine = victimName + " died while with child.";
+                    break;
+            }
+
+            string existing = victim.EncyclopediaText != null
+                ? victim.EncyclopediaText.ToString()
+                : string.Empty;
+
+            victim.EncyclopediaText = string.IsNullOrEmpty(existing)
+                ? new TextObject(recordLine)
+                : new TextObject(existing + " " + recordLine);
         }
 
         private void OnHeroWounded(Hero woundedHero)

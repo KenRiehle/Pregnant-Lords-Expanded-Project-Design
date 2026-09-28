@@ -32,3 +32,7 @@ Adds the Bannerlord 1.5.3 five-argument `HeroPrisonerReleased` event handler sig
 ## Build 04e2 — Personality-driven pregnant-prisoner petitions
 
 Build 04e2 preserves the validated monthly petition/release/refusal mechanics from 04e1 and adds deterministic personality-based petition wording, title-aware honorifics, and save-persistent refusal escalation. Escort allocation/travel remains intentionally deferred to the next isolated build. See `README_04E2_PERSONALITY_PETITIONS.md`.
+
+## Build 04e3 — Natural petition wording + pregnancy death-record cleanup
+
+Build 04e3 removes developer-facing `normalized pregnancy month` terminology from the prisoner petition UI while retaining it in diagnostics. It also preserves pregnancy as a historical fact when a pregnant noblewoman dies/is executed, clears the stale active `Pregnant` flag, and appends pregnancy-at-death wording to the native Encyclopedia obituary without replacing Bannerlord's ordinary execution/death consequences. See `README_04E3_UI_DEATH_RECORD_CLEANUP.md`.
